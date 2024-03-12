@@ -1,10 +1,11 @@
-use rodio::{source::Source, Decoder, OutputStream};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 use std::{thread, time};
+use rodio::{Decoder, OutputStream, Sink};
+use rodio::source::{SineWave, Source};
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PomodoroOptions {
@@ -99,15 +100,18 @@ fn display_screensaver_and_lock_screen() {
 fn play_sound(filepath_sound: PathBuf) {
     let (_stream, stream_handle) =
         OutputStream::try_default().expect("Failed to create output stream.");
-    if filepath_sound.is_file() {
-        let sound_file = std::fs::File::open(filepath_sound).expect("Failed to open sound file.");
-        let source = Decoder::new(sound_file).expect("Failed to decode sound file.");
-        let _ = stream_handle.play_raw(source.convert_samples());
-    } else {
-        // include_bytes! macro is used to include the sound file in the binary.
-        let sound_file = include_bytes!("C:/Windows/Media/Alarm01.wav");
-        let sound_cursor = std::io::Cursor::new(&sound_file[..]);
-        let source = Decoder::new(sound_cursor).unwrap();
-        let _ = stream_handle.play_raw(source.convert_samples());
-    }
+        let sink = Sink::try_new(&stream_handle).unwrap();
+        
+        if filepath_sound.is_file() {
+            let sound_file = std::fs::File::open(filepath_sound).expect("Failed to open sound file.");
+            let source = Decoder::new(sound_file).expect("Failed to decode sound file.");
+            sink.append(source);
+        } else {
+            // include_bytes! macro is used to include the sound file in the binary.
+            let sound_file = include_bytes!("C:/Windows/Media/Alarm01.wav");
+            let sound_cursor = std::io::Cursor::new(&sound_file[..]);
+            let source = Decoder::new(sound_cursor).unwrap();
+            sink.append(source);
+        }
+        sink.sleep_until_end();
 }
