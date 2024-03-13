@@ -17,6 +17,27 @@ struct PomodoroOptions {
     duration_long_break: i32,
     filepath_sound: String,
 }
+
+impl PomodoroOptions {
+    fn verify(&self) -> Result<(), String> {
+        if self.duration_pomodoro < 1 {
+            return Err("Pomodoro duration should be at least 1 minute.".to_string());
+        }
+        if self.additional_duration < 0 {
+            return Err("Additional duration should be at least 0 minute.".to_string());
+        }
+        if self.duration_short_break < 1 {
+            return Err("Short break duration should be at least 1 minute.".to_string());
+        }
+        if self.duration_long_break < 1 {
+            return Err("Long break duration should be at least 1 minute.".to_string());
+        }
+        if !PathBuf::from(&self.filepath_sound).is_file() || !self.filepath_sound.is_empty() {
+            return Err("Sound file does not exist.".to_string());
+        }
+        Ok(())
+    }
+}
 fn main() {
     // Read the JSON file
     let exe_path = env::current_exe().expect("Failed to get current executable path.");
@@ -30,9 +51,14 @@ fn main() {
         .expect("Failed to read file.");
 
     // Deserialize the JSON data into your data structure
-    let data: PomodoroOptions =
+    let mut data: PomodoroOptions =
         serde_json::from_str(&contents).expect("Failed to deserialize JSON.");
-
+    if !PathBuf::from(data.filepath_sound.clone()).is_file()
+        && !data.filepath_sound.is_empty()
+    {
+        println!("Sound file does not exist. Using default sound.");
+        data.filepath_sound = "".to_string();
+    }
     start_pomodoro(data);
 }
 
@@ -44,8 +70,12 @@ fn start_pomodoro(data: PomodoroOptions) {
 
     let mut counter = 0;
     let mut input = String::new();
+    let end_event = || {
+        play_sound(PathBuf::from(data.filepath_sound.clone()));
+    };
     loop {
         if counter != 0 {
+            input.clear();
             println!("Do you want to repeat the timer? (Enter 'r' for repeat)");
             std::io::stdin()
                 .read_line(&mut input)
@@ -54,9 +84,7 @@ fn start_pomodoro(data: PomodoroOptions) {
             input = "r".to_string();
         }
         if input.trim() == "r" {
-            execute_timer(duration, additional_duration, || {
-                play_sound(PathBuf::from(data.filepath_sound.clone()))
-            });
+            execute_timer(duration, additional_duration, end_event);
             let break_duration: Duration;
             if counter % 4 == 3 {
                 break_duration = Duration::from_secs((data.duration_long_break * 60) as u64)
@@ -64,16 +92,15 @@ fn start_pomodoro(data: PomodoroOptions) {
                 break_duration = Duration::from_secs((data.duration_short_break * 60) as u64)
             };
             println!(
-                "Press any key to start the break of {} minutes",
+                "Press any key to start the break of {:.0} minutes",
                 break_duration.as_secs() / 60
             );
-
             std::io::stdin()
                 .read_line(&mut input)
                 .expect("Failed to read input.");
-            execute_timer(break_duration, Duration::from_secs(0), || {
-                play_sound(PathBuf::from(data.filepath_sound.clone()))
-            });
+            if !break_duration.is_zero() {
+                execute_timer(break_duration, Duration::from_secs(0), end_event);
+            }
         } else {
             break;
         }
@@ -87,16 +114,12 @@ where
 {
     println!("Timer started for {} minutes. ", duration.as_secs() / 60);
     let start_time = time::Instant::now();
-    let mut now = time::Instant::now();
-    let mut time_elapsed = now.duration_since(start_time);
     let bar = ProgressBar::new(duration.as_secs());
     bar.set_style(
         ProgressStyle::with_template("[{elapsed}/{eta}] {wide_bar:.cyan/blue} ").unwrap(),
     );
-    let delta = 1;
-    while time_elapsed < duration {
-        now = time::Instant::now();
-        time_elapsed = now.duration_since(start_time);
+    let delta: u64 = 1;
+    while start_time.elapsed() < duration {
         thread::sleep(Duration::from_secs(delta));
         bar.inc(delta);
     }
