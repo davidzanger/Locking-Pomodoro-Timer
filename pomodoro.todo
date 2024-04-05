@@ -1,0 +1,14 @@
+Quick:
+    ☐ Add better exception handling.
+    ☐ Add tests.
+    ☐ Add documentation.
+    ☐ Add logger.
+
+Soon:
+    ☐ Add api.
+    ☐ Add flutter GUI.
+
+Archive:
+  ✔ Add pause timer. @done(24-03-12 18:02) @project(Quick)
+  ✔ Add progress bar. @done(24-03-12 14:40) @project(Quick)
+  ✔ Add filepath sound. @done(24-03-12 13:16) @project(Quick)
