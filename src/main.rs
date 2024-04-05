@@ -41,8 +41,25 @@ impl PomodoroOptions {
 }
 fn main() {
     // Read the JSON file
-    let data = read_options_from_json().expect("Failed to read options from JSON file.");
-    start_pomodoro(&data);
+    let data = read_options_from_json();
+    let json_data: PomodoroOptions;
+    match data {
+        Ok(data) => {
+            json_data = data;
+            start_pomodoro(&json_data);
+        }
+        Err(e) => {
+            eprintln!("Error: {:#}", e);
+            let mut input = String::new();
+            println!(
+                "Press enter to exit the program." 
+            );
+            std::io::stdin()
+                .read_line(&mut input)
+                .expect("Failed to read input.");
+            return;
+        }        
+    }
 }
 
 fn read_options_from_json() -> Result<PomodoroOptions> {
