@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use std::{thread, time};
 mod timer;
+use anyhow::{Context, Result};
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PomodoroOptions {
@@ -44,17 +45,20 @@ fn main() {
     start_pomodoro(&data);
 }
 
-fn read_options_from_json() -> Result<PomodoroOptions, std::io::Error> {
+fn read_options_from_json() -> Result<PomodoroOptions> {
     let mut folderpath = get_folderpath_executable()?;
     let file_path = &mut folderpath;
     let filename = "pomodoro_options.json";
     file_path.push(filename);
 
-    let mut file = File::open(file_path)?;
+    let mut file =
+        File::open(&file_path).with_context(|| format!("Failed to open file: {:?}", file_path))?;
     let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
+    file.read_to_string(&mut contents)
+        .with_context(|| format!("Failed to read file: {:?}", file_path))?;
 
-    let mut data: PomodoroOptions = serde_json::from_str(&contents)?;
+    let mut data: PomodoroOptions = serde_json::from_str(&contents)
+        .with_context(|| format!("Failed to parse JSON file: {:?}", file_path))?;
     if !PathBuf::from(data.filepath_sound.clone()).is_file() && !data.filepath_sound.is_empty() {
         println!("Sound file does not exist. Using default sound.");
         data.filepath_sound = "".to_string();
@@ -62,8 +66,8 @@ fn read_options_from_json() -> Result<PomodoroOptions, std::io::Error> {
     Ok(data)
 }
 
-fn get_folderpath_executable() -> Result<PathBuf, std::io::Error> {
-    let exe_path = env::current_exe()?;
+fn get_folderpath_executable() -> Result<PathBuf> {
+    let exe_path = env::current_exe().context("Failed to get executable path.")?;
     let mut file_path = exe_path.clone();
     file_path.pop();
     Ok(file_path)
