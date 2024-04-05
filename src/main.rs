@@ -7,7 +7,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{thread, time};
-
+mod timer;
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PomodoroOptions {
@@ -40,29 +40,36 @@ impl PomodoroOptions {
 }
 fn main() {
     // Read the JSON file
-    let exe_path = env::current_exe().expect("Failed to get current executable path.");
-    let mut file_path = exe_path.clone();
-    file_path.pop(); // Remove the executable name from the path
-    file_path.push("pomodoro_options.json");
+    let data = read_options_from_json().expect("Failed to read options from JSON file.");
+    start_pomodoro(&data);
+}
 
-    let mut file = File::open(file_path).expect("Failed to open file.");
+fn read_options_from_json() -> Result<PomodoroOptions, std::io::Error> {
+    let mut folderpath = get_folderpath_executable()?;
+    let file_path = &mut folderpath;
+    let filename = "pomodoro_options.json";
+    file_path.push(filename);
+
+    let mut file = File::open(file_path)?;
     let mut contents = String::new();
-    file.read_to_string(&mut contents)
-        .expect("Failed to read file.");
+    file.read_to_string(&mut contents)?;
 
-    // Deserialize the JSON data into your data structure
-    let mut data: PomodoroOptions =
-        serde_json::from_str(&contents).expect("Failed to deserialize JSON.");
-    if !PathBuf::from(data.filepath_sound.clone()).is_file()
-        && !data.filepath_sound.is_empty()
-    {
+    let mut data: PomodoroOptions = serde_json::from_str(&contents)?;
+    if !PathBuf::from(data.filepath_sound.clone()).is_file() && !data.filepath_sound.is_empty() {
         println!("Sound file does not exist. Using default sound.");
         data.filepath_sound = "".to_string();
     }
-    start_pomodoro(data);
+    Ok(data)
 }
 
-fn start_pomodoro(data: PomodoroOptions) {
+fn get_folderpath_executable() -> Result<PathBuf, std::io::Error> {
+    let exe_path = env::current_exe()?;
+    let mut file_path = exe_path.clone();
+    file_path.pop();
+    Ok(file_path)
+}
+
+fn start_pomodoro(data: &PomodoroOptions) {
     // Use the imported data
     println!("{:?}", data);
     let duration: Duration = Duration::from_secs((data.duration_pomodoro * 60) as u64);
@@ -76,14 +83,14 @@ fn start_pomodoro(data: PomodoroOptions) {
     loop {
         if counter != 0 {
             input.clear();
-            println!("Do you want to repeat the timer? (Enter 'r' for repeat)");
+            println!("Do you want to repeat the timer? (Enter 'r' and/or press enter for repeat)");
             std::io::stdin()
                 .read_line(&mut input)
                 .expect("Failed to read input.");
         } else {
             input = "r".to_string();
         }
-        if input.trim() == "r" {
+        if input.trim() == "r" || input.trim().is_empty() {
             execute_timer(duration, additional_duration, end_event);
             let break_duration: Duration;
             if counter % 4 == 3 {
@@ -92,7 +99,7 @@ fn start_pomodoro(data: PomodoroOptions) {
                 break_duration = Duration::from_secs((data.duration_short_break * 60) as u64)
             };
             println!(
-                "Press any key to start the break of {:.0} minutes",
+                "Press enter to start the break of {:.0} minutes",
                 break_duration.as_secs() / 60
             );
             std::io::stdin()
@@ -157,7 +164,7 @@ fn display_screensaver_and_lock_screen() {
 fn play_sound(filepath_sound: PathBuf) {
     let (_stream, stream_handle) =
         OutputStream::try_default().expect("Failed to create output stream.");
-    let sink = Sink::try_new(&stream_handle).unwrap();
+    let sink = Sink::try_new(&stream_handle).expect("Failed to create sink.");
 
     if filepath_sound.is_file() {
         let sound_file = std::fs::File::open(filepath_sound).expect("Failed to open sound file.");
