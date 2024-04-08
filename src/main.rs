@@ -1,93 +1,32 @@
+use crate::pomodoro_options::read_options_from_json;
 use indicatif::{ProgressBar, ProgressStyle};
-use rodio::{Decoder, OutputStream, Sink};
-use serde::{Deserialize, Serialize};
-use std::env;
-use std::fs::File;
-use std::io::Read;
+use pomodoro_options::PomodoroOptions;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{thread, time};
-mod timer;
-use anyhow::{Context, Result};
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PomodoroOptions {
-    duration_pomodoro: i32,
-    additional_duration: i32,
-    duration_short_break: i32,
-    duration_long_break: i32,
-    filepath_sound: String,
-}
 
-impl PomodoroOptions {
-    fn verify(&self) -> Result<(), String> {
-        if self.duration_pomodoro < 1 {
-            return Err("Pomodoro duration should be at least 1 minute.".to_string());
-        }
-        if self.additional_duration < 0 {
-            return Err("Additional duration should be at least 0 minute.".to_string());
-        }
-        if self.duration_short_break < 1 {
-            return Err("Short break duration should be at least 1 minute.".to_string());
-        }
-        if self.duration_long_break < 1 {
-            return Err("Long break duration should be at least 1 minute.".to_string());
-        }
-        if !PathBuf::from(&self.filepath_sound).is_file() || !self.filepath_sound.is_empty() {
-            return Err("Sound file does not exist.".to_string());
-        }
-        Ok(())
-    }
-}
+use crate::end_events::{display_screensaver_and_lock_screen, play_sound};
+mod end_events;
+mod pomodoro_options;
+mod timer;
+
 fn main() {
     // Read the JSON file
-    let data = read_options_from_json();
-    let json_data: PomodoroOptions;
+    let data = read_options_from_json(None);
     match data {
-        Ok(data) => {
-            json_data = data;
+        Ok(json_data) => {
             start_pomodoro(&json_data);
         }
         Err(e) => {
             eprintln!("Error: {:#}", e);
             let mut input = String::new();
-            println!(
-                "Press enter to exit the program." 
-            );
+            println!("Press enter to exit the program.");
             std::io::stdin()
                 .read_line(&mut input)
                 .expect("Failed to read input.");
             return;
-        }        
+        }
     }
-}
-
-fn read_options_from_json() -> Result<PomodoroOptions> {
-    let mut folderpath = get_folderpath_executable()?;
-    let file_path = &mut folderpath;
-    let filename = "pomodoro_options.json";
-    file_path.push(filename);
-
-    let mut file =
-        File::open(&file_path).with_context(|| format!("Failed to open file: {:?}", file_path))?;
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)
-        .with_context(|| format!("Failed to read file: {:?}", file_path))?;
-
-    let mut data: PomodoroOptions = serde_json::from_str(&contents)
-        .with_context(|| format!("Failed to parse JSON file: {:?}", file_path))?;
-    if !PathBuf::from(data.filepath_sound.clone()).is_file() && !data.filepath_sound.is_empty() {
-        println!("Sound file does not exist. Using default sound.");
-        data.filepath_sound = "".to_string();
-    }
-    Ok(data)
-}
-
-fn get_folderpath_executable() -> Result<PathBuf> {
-    let exe_path = env::current_exe().context("Failed to get executable path.")?;
-    let mut file_path = exe_path.clone();
-    file_path.pop();
-    Ok(file_path)
 }
 
 fn start_pomodoro(data: &PomodoroOptions) {
@@ -163,40 +102,4 @@ where
         );
         display_screensaver_and_lock_screen();
     }
-}
-
-fn display_screensaver_and_lock_screen() {
-    // Turn on the screen saver for windows and lock the screen.
-    std::process::Command::new("cmd")
-        .args(&[
-            "/C",
-            "start",
-            "",
-            "scrnsave.scr",
-            "/s",
-            "&",
-            "rundll32",
-            "user32.dll,LockWorkStation",
-        ])
-        .output()
-        .expect("Failed to start screen saver.");
-}
-
-fn play_sound(filepath_sound: PathBuf) {
-    let (_stream, stream_handle) =
-        OutputStream::try_default().expect("Failed to create output stream.");
-    let sink = Sink::try_new(&stream_handle).expect("Failed to create sink.");
-
-    if filepath_sound.is_file() {
-        let sound_file = std::fs::File::open(filepath_sound).expect("Failed to open sound file.");
-        let source = Decoder::new(sound_file).expect("Failed to decode sound file.");
-        sink.append(source);
-    } else {
-        // include_bytes! macro is used to include the sound file in the binary.
-        let sound_file = include_bytes!("C:/Windows/Media/Alarm01.wav");
-        let sound_cursor = std::io::Cursor::new(&sound_file[..]);
-        let source = Decoder::new(sound_cursor).unwrap();
-        sink.append(source);
-    }
-    sink.sleep_until_end();
 }

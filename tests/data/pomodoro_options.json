@@ -1,0 +1,7 @@
+{
+    "durationPomodoro": 25,
+    "durationShortBreak": 5,
+    "durationLongBreak": 15,
+    "additionalDuration": 5,
+    "filepathSound": ""
+}
