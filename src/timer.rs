@@ -4,29 +4,30 @@ use std::{
         Arc,
     },
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 pub(crate) struct Timer {
-    start_time: Instant,
     duration: Duration,
     elapsed_time: Arc<AtomicU32>,
     paused: Arc<AtomicBool>,
     should_terminate: Arc<AtomicBool>,
+    // TODO: Handle the end event.
+    end_event: Option<Box<dyn Fn()>>,
 }
 
 impl Timer {
-    fn new(duration: Duration) -> Self {
+    pub fn new(duration: Duration) -> Self {
         Timer {
-            start_time: Instant::now(),
             duration,
             elapsed_time: Arc::new(AtomicU32::new(0)),
             paused: Arc::new(AtomicBool::new(false)),
             should_terminate: Arc::new(AtomicBool::new(false)),
+            end_event: None,
         }
     }
 
-    fn start(&self) {
+    pub fn start(&self) {
         let elapsed_time_storage = self.elapsed_time.clone();
         let duration = self.duration;
         let mut time_buffer = 0.0;
@@ -52,20 +53,20 @@ impl Timer {
         });
     }
 
-    fn pause(&self) {
+    pub fn pause(&self) {
         self.paused.store(true, Ordering::Relaxed);
     }
 
-    fn stop(&self) {
+    pub fn stop(&self) {
         self.should_terminate.store(true, Ordering::Relaxed);
     }
 
-    fn get_elapsed_time(&self) -> Duration {
+    pub fn get_elapsed_time(&self) -> Duration {
         let elapsed_time = self.elapsed_time.load(Ordering::Relaxed);
         Duration::from_secs(elapsed_time as u64)
     }
 
-    fn reset(&self) {
+    pub fn reset(&self) {
         self.elapsed_time.store(0, Ordering::Relaxed);
     }
     // TODO: What about clean up? Use the exit_timer to stop the thread.

@@ -1,4 +1,5 @@
 use crate::pomodoro_options::read_options_from_json;
+use crate::timer::Timer;
 use indicatif::{ProgressBar, ProgressStyle};
 use pomodoro_options::PomodoroOptions;
 use std::path::PathBuf;
@@ -43,14 +44,14 @@ fn start_pomodoro(data: &PomodoroOptions) {
     loop {
         if counter != 0 {
             input.clear();
-            println!("Do you want to repeat the timer? (Enter 'r' and/or press enter for repeat)");
+            println!("Do you want to repeat the timer? (Press enter to repeat, type anything else and press enter to exit)");
             std::io::stdin()
                 .read_line(&mut input)
                 .expect("Failed to read input.");
         } else {
-            input = "r".to_string();
+            input = "".to_string();
         }
-        if input.trim() == "r" || input.trim().is_empty() {
+        if input.trim().is_empty() {
             execute_timer(duration, additional_duration, end_event);
             let break_duration: Duration;
             if counter % 4 == 3 {
@@ -80,26 +81,31 @@ where
     F: Fn(),
 {
     println!("Timer started for {} minutes. ", duration.as_secs() / 60);
-    let start_time = time::Instant::now();
+    time_with_progress_bar(duration);
+    
+    end_event();
+    println!("Times up!");
+    if !additional_duration.is_zero() {
+        println!(
+            "You got an extra {} minutes.",
+            additional_duration.as_secs() / 60
+        );
+        time_with_progress_bar(additional_duration);
+        display_screensaver_and_lock_screen();
+}
+}
+
+fn time_with_progress_bar(duration: Duration) {
+    let timer = Timer::new(duration);
     let bar = ProgressBar::new(duration.as_secs());
     bar.set_style(
         ProgressStyle::with_template("[{elapsed}/{eta}] {wide_bar:.cyan/blue} ").unwrap(),
     );
     let delta: u64 = 1;
-    while start_time.elapsed() < duration {
+    timer.start();
+    while timer.get_elapsed_time() < duration {
         thread::sleep(Duration::from_secs(delta));
-        bar.inc(delta);
+        bar.inc(delta)
     }
     bar.finish();
-
-    end_event();
-    println!("Times up!");
-    if !additional_duration.is_zero() {
-        thread::sleep(additional_duration);
-        println!(
-            "You got an extra {} minutes.",
-            additional_duration.as_secs() / 60
-        );
-        display_screensaver_and_lock_screen();
     }
-}
