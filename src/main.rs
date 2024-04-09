@@ -32,7 +32,7 @@ fn main() {
 
 fn start_pomodoro(data: &PomodoroOptions) {
     // Use the imported data
-    println!("{:?}", data);
+    println!("{:#?}", data);
     let duration: Duration = Duration::from_secs((data.duration_pomodoro * 60) as u64);
     let additional_duration: Duration = Duration::from_secs((data.additional_duration * 60) as u64);
 
