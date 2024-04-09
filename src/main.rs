@@ -12,6 +12,7 @@ mod pomodoro_options;
 mod timer;
 
 fn main() {
+    env_logger::init();
     // Read the JSON file
     let data = read_options_from_json(None);
     match data {

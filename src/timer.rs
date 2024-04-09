@@ -6,7 +6,7 @@ use std::{
     thread,
     time::Duration,
 };
-
+use log::trace;
 pub(crate) struct Timer {
     duration: Duration,
     elapsed_time: Arc<AtomicU32>,
@@ -50,6 +50,7 @@ impl Timer {
                     elapsed_time_storage.fetch_add(time_to_add,Ordering::Relaxed);
                 }
             }
+            trace!("Timer thread terminated.");
         });
     }
 
@@ -69,5 +70,11 @@ impl Timer {
     pub fn reset(&self) {
         self.elapsed_time.store(0, Ordering::Relaxed);
     }
-    // TODO: What about clean up? Use the exit_timer to stop the thread.
+}
+
+impl Drop for Timer {
+    fn drop(&mut self) {
+        self.stop();
+        trace!("Timer dropped.");
+    }
 }
