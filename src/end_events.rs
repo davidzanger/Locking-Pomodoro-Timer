@@ -2,6 +2,14 @@ use rodio::{Decoder, OutputStream, Sink};
 use std::path::PathBuf;
 
 pub fn display_screensaver_and_lock_screen() {
+    if cfg!(windows) {
+        display_screensaver_and_lock_screen_on_windows();
+    } else {
+        // TODO: Implement for Linux and macOS.
+        unimplemented!("This feature is not implemented for this platform.")
+    }
+}
+pub fn display_screensaver_and_lock_screen_on_windows() {
     // Turn on the screen saver for windows and lock the screen.
     std::process::Command::new("cmd")
         .args(&[
