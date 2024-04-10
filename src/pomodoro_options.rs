@@ -15,6 +15,23 @@ pub struct PomodoroOptions {
     pub duration_long_break: i32,
     pub filepath_sound: String,
     pub auto_start_break: bool,
+    pub auto_start_pomodoro: bool,
+    pub interval_long_break: i32,
+}
+
+impl Default for PomodoroOptions {
+    fn default() -> Self {
+        PomodoroOptions {
+            duration_pomodoro: 25,
+            additional_duration: 5,
+            duration_short_break: 5,
+            duration_long_break: 15,
+            filepath_sound: "".to_string(),
+            auto_start_break: true,
+            auto_start_pomodoro: true,
+            interval_long_break: 4,
+        }
+    }
 }
 
 impl PomodoroOptions {

@@ -31,19 +31,20 @@ fn main() {
     }
 }
 
-fn start_pomodoro(data: &PomodoroOptions) {
+fn start_pomodoro(options: &PomodoroOptions) {
     // Use the imported data
-    println!("{:#?}", data);
-    let duration: Duration = Duration::from_secs((data.duration_pomodoro * 60) as u64);
-    let additional_duration: Duration = Duration::from_secs((data.additional_duration * 60) as u64);
+    println!("{:#?}", options);
+    let duration: Duration = Duration::from_secs((options.duration_pomodoro * 60) as u64);
+    let additional_duration: Duration =
+        Duration::from_secs((options.additional_duration * 60) as u64);
 
     let mut counter = 0;
     let mut input = String::new();
     let end_event = || {
-        play_sound(PathBuf::from(data.filepath_sound.clone()));
+        play_sound(PathBuf::from(options.filepath_sound.clone()));
     };
     loop {
-        if counter != 0 {
+        if counter != 0 && !options.auto_start_pomodoro {
             input.clear();
             println!("Do you want to repeat the timer? (Press enter to repeat, type anything else and press enter to exit)");
             std::io::stdin()
@@ -55,12 +56,12 @@ fn start_pomodoro(data: &PomodoroOptions) {
         if input.trim().is_empty() {
             execute_timer(duration, additional_duration, end_event);
             let break_duration: Duration;
-            if counter % 4 == 3 {
-                break_duration = Duration::from_secs((data.duration_long_break * 60) as u64)
+            if counter % options.interval_long_break == options.interval_long_break - 1 {
+                break_duration = Duration::from_secs((options.duration_long_break * 60) as u64)
             } else {
-                break_duration = Duration::from_secs((data.duration_short_break * 60) as u64)
+                break_duration = Duration::from_secs((options.duration_short_break * 60) as u64)
             };
-            if data.auto_start_break {
+            if options.auto_start_break {
                 println!(
                     "Starting the break of {:.0} minutes",
                     break_duration.as_secs() / 60
