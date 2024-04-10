@@ -14,6 +14,7 @@ pub struct PomodoroOptions {
     pub duration_short_break: i32,
     pub duration_long_break: i32,
     pub filepath_sound: String,
+    pub auto_start_break: bool,
 }
 
 impl PomodoroOptions {

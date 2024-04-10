@@ -60,13 +60,20 @@ fn start_pomodoro(data: &PomodoroOptions) {
             } else {
                 break_duration = Duration::from_secs((data.duration_short_break * 60) as u64)
             };
-            println!(
-                "Press enter to start the break of {:.0} minutes",
-                break_duration.as_secs() / 60
-            );
-            std::io::stdin()
-                .read_line(&mut input)
-                .expect("Failed to read input.");
+            if data.auto_start_break {
+                println!(
+                    "Starting the break of {:.0} minutes",
+                    break_duration.as_secs() / 60
+                );
+            } else {
+                println!(
+                    "Press enter to start the break of {:.0} minutes",
+                    break_duration.as_secs() / 60
+                );
+                std::io::stdin()
+                    .read_line(&mut input)
+                    .expect("Failed to read input.");
+            }
             if !break_duration.is_zero() {
                 execute_timer(break_duration, Duration::from_secs(0), end_event);
             }
@@ -83,7 +90,7 @@ where
 {
     println!("Timer started for {} minutes. ", duration.as_secs() / 60);
     time_with_progress_bar(duration);
-    
+
     end_event();
     println!("Times up!");
     if !additional_duration.is_zero() {
@@ -93,7 +100,7 @@ where
         );
         time_with_progress_bar(additional_duration);
         display_screensaver_and_lock_screen();
-}
+    }
 }
 
 fn time_with_progress_bar(duration: Duration) {
@@ -109,4 +116,4 @@ fn time_with_progress_bar(duration: Duration) {
         bar.inc(delta)
     }
     bar.finish();
-    }
+}
