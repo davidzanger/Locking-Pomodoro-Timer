@@ -7,15 +7,24 @@ use std::io::Read;
 use std::path::PathBuf;
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default = "PomodoroOptions::default")]
+/// Struct representing the options for a Pomodoro timer.
 pub struct PomodoroOptions {
+    /// The duration of a single Pomodoro session in minutes.
     pub duration_pomodoro: i32,
+    /// The additional duration in minutes to be added to a Pomodoro session when it is over.
     pub additional_duration: i32,
+    /// The duration of a short break in minutes.
     pub duration_short_break: i32,
+    /// The duration of a long break in minutes.
     pub duration_long_break: i32,
+    /// The filepath to the sound file to be played when a Pomodoro session ends.
     pub filepath_sound: String,
+    /// Flag indicating whether to automatically start a break after a Pomodoro session ends.
     pub auto_start_break: bool,
+    /// Flag indicating whether to automatically start a new Pomodoro session after a break ends.
     pub auto_start_pomodoro: bool,
+    /// The interval in number of Pomodoro sessions after which a long break should be taken.
     pub interval_long_break: i32,
 }
 
