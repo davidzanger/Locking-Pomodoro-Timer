@@ -15,20 +15,12 @@ fn main() {
     env_logger::init();
     // Read the JSON file
     let data = read_options_from_json(None);
-    match data {
-        Ok(json_data) => {
-            start_pomodoro(&json_data);
-        }
-        Err(e) => {
-            eprintln!("Error: {:#}", e);
-            let mut input = String::new();
-            println!("Press enter to exit the program.");
-            std::io::stdin()
-                .read_line(&mut input)
-                .expect("Failed to read input.");
-            return;
-        }
-    }
+    let json_data = data.unwrap_or_else(|e| {
+        eprintln!("Error: {:#}", e);
+        eprintln!("Using default options.");
+        PomodoroOptions::default()
+    });
+    start_pomodoro(&json_data);
 }
 
 fn start_pomodoro(options: &PomodoroOptions) {
