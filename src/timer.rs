@@ -58,6 +58,14 @@ impl Timer {
         self.paused.store(true, Ordering::Relaxed);
     }
 
+    pub fn resume(&self) {
+        self.paused.store(false, Ordering::Relaxed);
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::Relaxed)
+    }
+
     pub fn stop(&self) {
         self.should_terminate.store(true, Ordering::Relaxed);
     }
