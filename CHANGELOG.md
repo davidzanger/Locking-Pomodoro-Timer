@@ -18,6 +18,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Security
 
+## 0.3.1 - 2024-04-17
+
+### Fixed
+
+- Fixed send error when quitting a Pomodoro session or a break. The problem was that the receiver was dropped after the first timer had finished. This was fixed by invoking the receiver earlier in the code so that it is dropped later. 
+
 ## 0.3.0 - 2024-04-17
 
 ### Added
