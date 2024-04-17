@@ -1,12 +1,14 @@
+use crate::end_events::{display_screensaver_and_lock_screen, play_sound};
 use crate::pomodoro_options::read_options_from_json;
 use crate::timer::Timer;
+use crossterm::event::{read, Event, KeyCode};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use indicatif::{ProgressBar, ProgressStyle};
+use log::{debug, trace};
 use pomodoro_options::PomodoroOptions;
-use std::path::PathBuf;
+use std::thread;
 use std::time::Duration;
-use std::{thread, time};
-
-use crate::end_events::{display_screensaver_and_lock_screen, play_sound};
+use std::path::PathBuf;
 mod end_events;
 mod pomodoro_options;
 mod timer;
@@ -81,32 +83,96 @@ fn execute_timer<F>(duration: Duration, additional_duration: Duration, end_event
 where
     F: Fn(),
 {
+    debug!("Starting input stream.");
+    let receiver = start_input_stream();
     println!("Timer started for {} minutes. ", duration.as_secs() / 60);
-    time_with_progress_bar(duration);
+    time_with_progress_bar(duration, &receiver, end_event);
 
-    end_event();
     println!("Times up!");
     if !additional_duration.is_zero() {
         println!(
             "You got an extra {} minutes.",
             additional_duration.as_secs() / 60
         );
-        time_with_progress_bar(additional_duration);
-        display_screensaver_and_lock_screen();
+        time_with_progress_bar(
+            additional_duration,
+            &receiver,
+            display_screensaver_and_lock_screen,
+        );
     }
 }
 
-fn time_with_progress_bar(duration: Duration) {
+fn time_with_progress_bar<F: Fn()>(
+    duration: Duration,
+    receiver: &std::sync::mpsc::Receiver<String>,
+    end_event: F,
+) {
     let timer = Timer::new(duration);
-    let bar = ProgressBar::new(duration.as_secs());
+    let mut bar = ProgressBar::new(duration.as_secs());
     bar.set_style(
         ProgressStyle::with_template("[{elapsed}/{eta}] {wide_bar:.cyan/blue} ").unwrap(),
     );
     let delta: u64 = 1;
     timer.start();
+    println!("Press 'p' to pause, 'q' to quit current timer.");
     while timer.get_elapsed_time() < duration {
+        if let Ok(input) = receiver.try_recv() {
+            if input == "p" {
+                timer.pause();
+                println!("Timer paused.");
+                println!("Press 'r' to resume, 'q' to quit current timer.");
+            } else if input == "r" {
+                timer.resume();
+                println!("Timer resumed.");
+                println!("Press 'p' to pause, 'q' to quit current timer.");
+                bar = bar.with_elapsed(timer.get_elapsed_time());
+                bar.reset_eta();
+            } else if input == "q" {
+                // Return early to not execute the end event.
+                println!("Exiting the current timer.");
+                return;
+            } else if input == "ctrl+c" {
+                println!("Exiting the program.");
+                std::process::exit(0);
+            } else {
+                debug!("Invalid input: {}", input);
+            }
+            debug!("Elapsed time: {:?}", timer.get_elapsed_time());
+        }
         thread::sleep(Duration::from_secs(delta));
-        bar.inc(delta)
+        if !timer.is_paused() {
+            bar.inc(delta)
+        }
     }
     bar.finish();
+    end_event();
+}
+
+fn start_input_stream() -> std::sync::mpsc::Receiver<String> {
+    let (sender, receiver) = std::sync::mpsc::channel::<String>();
+    thread::spawn(move || {
+        trace!("Spawning input thread.");
+        enable_raw_mode().expect("Failed to enable raw mode.");
+        loop {
+            if let Ok(Event::Key(key_event)) = read() {
+                debug!("Received key event: {:?}", key_event);
+                if key_event.kind != crossterm::event::KeyEventKind::Press {
+                    continue;
+                }
+                if key_event.code == KeyCode::Char('c')
+                    && key_event.modifiers == crossterm::event::KeyModifiers::CONTROL
+                {
+                    debug!("Exiting the program.");
+                    sender
+                        .send("ctrl+c".to_string())
+                        .expect("Failed to send input.");
+                    disable_raw_mode().expect("Failed to disable raw mode.");
+                    break;
+                } else if let KeyCode::Char(c) = key_event.code {
+                    sender.send(c.to_string()).expect("Failed to send input.");
+                }
+            }
+        }
+    });
+    receiver
 }
