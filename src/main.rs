@@ -152,7 +152,7 @@ fn time_with_progress_bar<F: Fn()>(
 
 fn start_input_stream() -> std::sync::mpsc::Receiver<String> {
     let (sender, receiver) = std::sync::mpsc::channel::<String>();
-    thread::spawn(move || {
+    std::thread::Builder::new().name("input_stream".to_string()).spawn(move || {
         trace!("Spawning input thread.");
         enable_raw_mode().expect("Failed to enable raw mode.");
         loop {
@@ -175,6 +175,6 @@ fn start_input_stream() -> std::sync::mpsc::Receiver<String> {
                 }
             }
         }
-    });
+    }).expect("Failed to spawn input thread.");
     receiver
 }
