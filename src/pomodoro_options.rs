@@ -72,7 +72,6 @@ pub fn read_options_from_json(filepath_json: Option<PathBuf>) -> Result<Pomodoro
             path.push(filename);
             path
         }
-        
     };
     let mut file =
         File::open(&file_path).with_context(|| format!("Failed to open file: {:?}", file_path))?;
@@ -98,8 +97,11 @@ fn get_folderpath_executable() -> Result<PathBuf> {
 
 #[test]
 fn test_read_options_from_json() {
-
-    let filepath_test_json = get_project_root().unwrap().join("tests").join("data").join("pomodoro_options.json");
+    let filepath_test_json = get_project_root()
+        .unwrap()
+        .join("tests")
+        .join("data")
+        .join("pomodoro_options.json");
     // Assuming you have a valid JSON file with the correct structure
     let options = read_options_from_json(Some(filepath_test_json)).unwrap();
 
