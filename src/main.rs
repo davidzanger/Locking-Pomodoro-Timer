@@ -37,6 +37,8 @@ fn start_pomodoro(options: &PomodoroOptions) {
     let end_event = || {
         play_sound(PathBuf::from(options.filepath_sound.clone()));
     };
+    debug!("Starting input stream.");
+    let receiver = start_input_stream();
     loop {
         if counter != 0 && !options.auto_start_pomodoro {
             input.clear();
@@ -48,7 +50,7 @@ fn start_pomodoro(options: &PomodoroOptions) {
             input = "".to_string();
         }
         if input.trim().is_empty() {
-            execute_timer(duration, additional_duration, end_event);
+            execute_timer(duration, additional_duration,&receiver, end_event);
             let break_duration: Duration;
             if counter % options.interval_long_break == options.interval_long_break - 1 {
                 break_duration = Duration::from_secs((options.duration_long_break * 60) as u64)
@@ -70,7 +72,7 @@ fn start_pomodoro(options: &PomodoroOptions) {
                     .expect("Failed to read input.");
             }
             if !break_duration.is_zero() {
-                execute_timer(break_duration, Duration::from_secs(0), end_event);
+                execute_timer(break_duration, Duration::from_secs(0), &receiver,end_event);
             }
         } else {
             break;
@@ -79,12 +81,12 @@ fn start_pomodoro(options: &PomodoroOptions) {
     }
 }
 
-fn execute_timer<F>(duration: Duration, additional_duration: Duration, end_event: F)
+fn execute_timer<F>(duration: Duration, additional_duration: Duration, 
+    receiver: &std::sync::mpsc::Receiver<String>,
+    end_event: F)
 where
     F: Fn(),
 {
-    debug!("Starting input stream.");
-    let receiver = start_input_stream();
     println!("Timer started for {} minutes. ", duration.as_secs() / 60);
     time_with_progress_bar(duration, &receiver, end_event);
 
