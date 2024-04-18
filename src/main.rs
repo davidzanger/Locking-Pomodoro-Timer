@@ -6,9 +6,9 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, trace};
 use pomodoro_options::PomodoroOptions;
+use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
-use std::path::PathBuf;
 mod end_events;
 mod pomodoro_options;
 mod timer;
@@ -50,29 +50,113 @@ fn start_pomodoro(options: &PomodoroOptions) {
             input = "".to_string();
         }
         if input.trim().is_empty() {
-            execute_timer(duration, additional_duration,&receiver, end_event);
+            let pomodoros_till_long_break =
+                options.interval_long_break - counter % options.interval_long_break;
+            let minutes_till_long_break = pomodoros_till_long_break
+                * (options.duration_pomodoro + options.additional_duration)
+                + (pomodoros_till_long_break - 1) * options.duration_short_break;
+            let is_long_break_coming =
+                counter % options.interval_long_break == options.interval_long_break - 1;
             let break_duration: Duration;
-            if counter % options.interval_long_break == options.interval_long_break - 1 {
+            if is_long_break_coming {
                 break_duration = Duration::from_secs((options.duration_long_break * 60) as u64)
             } else {
                 break_duration = Duration::from_secs((options.duration_short_break * 60) as u64)
             };
-            if options.auto_start_break {
-                println!(
-                    "Starting the break of {:.0} minutes",
-                    break_duration.as_secs() / 60
+            let mut print_message =
+                format!("Current: Pomodoro ({:.0} min)", options.duration_pomodoro);
+            if !additional_duration.is_zero() {
+                print_message += &format!(
+                    " | Upcoming: Additional {} min",
+                    additional_duration.as_secs() / 60
+                );
+            } else if !break_duration.is_zero() && is_long_break_coming {
+                print_message += &format!(
+                    " | Upcoming: Long break ({:.0} min)",
+                    options.duration_long_break
+                );
+            } else if !break_duration.is_zero() && !is_long_break_coming {
+                print_message += &format!(
+                    " | Upcoming: Short break ({:.0} min)",
+                    options.duration_short_break
+                );
+            } else if break_duration.is_zero() {
+                print_message += &format!(
+                    " | Upcoming: Pomodoro ({:.0} min)",
+                    options.duration_pomodoro
                 );
             } else {
-                println!(
-                    "Press enter to start the break of {:.0} minutes",
-                    break_duration.as_secs() / 60
+                panic!("Invalid state. This line should not be reached.");
+            }
+            print_message += &format!(
+                " | Pomodoros till long break: {} ({} min)",
+                pomodoros_till_long_break, minutes_till_long_break
+            );
+            println!("{}", print_message);
+
+            execute_timer(duration, &receiver, end_event);
+            if !additional_duration.is_zero() {
+                let mut print_message = format!(
+                    "Current: Additional ({:.0} min).",
+                    additional_duration.as_secs() / 60
                 );
-                std::io::stdin()
-                    .read_line(&mut input)
-                    .expect("Failed to read input.");
+                if !break_duration.is_zero() && is_long_break_coming {
+                    print_message += &format!(
+                        " | Upcoming: Long break ({:.0} min)",
+                        options.duration_long_break
+                    );
+                } else if !break_duration.is_zero() && !is_long_break_coming {
+                    print_message += &format!(
+                        " | Upcoming: Short break ({:.0} min)",
+                        options.duration_short_break
+                    );
+                } else if break_duration.is_zero() {
+                    print_message += &format!(
+                        " | Upcoming: Pomodoro ({:.0} min)",
+                        options.duration_pomodoro
+                    );
+                } else {
+                    panic!("Invalid state. This line should not be reached.");
+                }
+                println!("{}", print_message);
+                time_with_progress_bar(
+                    additional_duration,
+                    &receiver,
+                    display_screensaver_and_lock_screen,
+                );
             }
             if !break_duration.is_zero() {
-                execute_timer(break_duration, Duration::from_secs(0), &receiver,end_event);
+                if !options.auto_start_break {
+                    if is_long_break_coming {
+                        println!(
+                            "Press enter to start the long break of {:.0} minutes.",
+                            break_duration.as_secs() / 60
+                        );
+                    } else {
+                        println!(
+                            "Press enter to start the short break of {:.0} minutes.",
+                            break_duration.as_secs() / 60
+                        );
+                    }
+                    std::io::stdin()
+                        .read_line(&mut input)
+                        .expect("Failed to read input.");
+                }
+                let mut print_message = format!(
+                    "Current: {} break ({:.0} min).",
+                    if is_long_break_coming {
+                        "Long"
+                    } else {
+                        "Short"
+                    },
+                    break_duration.as_secs() / 60
+                );
+                print_message += &format!(
+                    " | Upcoming: Pomodoro ({:.0} min)",
+                    options.duration_pomodoro
+                );
+                println!("{}", print_message);
+                execute_timer(break_duration, &receiver, end_event);
             }
         } else {
             break;
@@ -81,27 +165,12 @@ fn start_pomodoro(options: &PomodoroOptions) {
     }
 }
 
-fn execute_timer<F>(duration: Duration, additional_duration: Duration, 
-    receiver: &std::sync::mpsc::Receiver<String>,
-    end_event: F)
+fn execute_timer<F>(duration: Duration, receiver: &std::sync::mpsc::Receiver<String>, end_event: F)
 where
     F: Fn(),
 {
-    println!("Timer started for {} minutes. ", duration.as_secs() / 60);
     time_with_progress_bar(duration, &receiver, end_event);
-
     println!("Times up!");
-    if !additional_duration.is_zero() {
-        println!(
-            "You got an extra {} minutes.",
-            additional_duration.as_secs() / 60
-        );
-        time_with_progress_bar(
-            additional_duration,
-            &receiver,
-            display_screensaver_and_lock_screen,
-        );
-    }
 }
 
 fn time_with_progress_bar<F: Fn()>(
@@ -152,29 +221,32 @@ fn time_with_progress_bar<F: Fn()>(
 
 fn start_input_stream() -> std::sync::mpsc::Receiver<String> {
     let (sender, receiver) = std::sync::mpsc::channel::<String>();
-    std::thread::Builder::new().name("input_stream".to_string()).spawn(move || {
-        trace!("Spawning input thread.");
-        enable_raw_mode().expect("Failed to enable raw mode.");
-        loop {
-            if let Ok(Event::Key(key_event)) = read() {
-                debug!("Received key event: {:?}", key_event);
-                if key_event.kind != crossterm::event::KeyEventKind::Press {
-                    continue;
-                }
-                if key_event.code == KeyCode::Char('c')
-                    && key_event.modifiers == crossterm::event::KeyModifiers::CONTROL
-                {
-                    debug!("Exiting the program.");
-                    sender
-                        .send("ctrl+c".to_string())
-                        .expect("Failed to send input.");
-                    disable_raw_mode().expect("Failed to disable raw mode.");
-                    break;
-                } else if let KeyCode::Char(c) = key_event.code {
-                    sender.send(c.to_string()).expect("Failed to send input.");
+    std::thread::Builder::new()
+        .name("input_stream".to_string())
+        .spawn(move || {
+            trace!("Spawning input thread.");
+            enable_raw_mode().expect("Failed to enable raw mode.");
+            loop {
+                if let Ok(Event::Key(key_event)) = read() {
+                    debug!("Received key event: {:?}", key_event);
+                    if key_event.kind != crossterm::event::KeyEventKind::Press {
+                        continue;
+                    }
+                    if key_event.code == KeyCode::Char('c')
+                        && key_event.modifiers == crossterm::event::KeyModifiers::CONTROL
+                    {
+                        debug!("Exiting the program.");
+                        sender
+                            .send("ctrl+c".to_string())
+                            .expect("Failed to send input.");
+                        disable_raw_mode().expect("Failed to disable raw mode.");
+                        break;
+                    } else if let KeyCode::Char(c) = key_event.code {
+                        sender.send(c.to_string()).expect("Failed to send input.");
+                    }
                 }
             }
-        }
-    }).expect("Failed to spawn input thread.");
+        })
+        .expect("Failed to spawn input thread.");
     receiver
 }
