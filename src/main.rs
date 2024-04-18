@@ -118,6 +118,15 @@ fn start_pomodoro(options: &PomodoroOptions) {
                 } else {
                     panic!("Invalid state. This line should not be reached.");
                 }
+                let minutes_till_long_break = pomodoros_till_long_break
+                    * options.additional_duration
+                    + (pomodoros_till_long_break - 1)
+                        * (options.duration_short_break + options.duration_pomodoro);
+                print_message += &format!(
+                    " | Pomodoros till long break: {} ({} min)",
+                    pomodoros_till_long_break - 1,
+                    minutes_till_long_break
+                );
                 println!("{}", print_message);
                 time_with_progress_bar(
                     additional_duration,
@@ -154,6 +163,15 @@ fn start_pomodoro(options: &PomodoroOptions) {
                 print_message += &format!(
                     " | Upcoming: Pomodoro ({:.0} min)",
                     options.duration_pomodoro
+                );
+                let minutes_till_long_break = (pomodoros_till_long_break - 1)
+                    * (options.duration_pomodoro
+                        + options.duration_short_break
+                        + options.additional_duration);
+                print_message += &format!(
+                    " | Pomodoros till long break: {} ({} min)",
+                    pomodoros_till_long_break - 1,
+                    minutes_till_long_break
                 );
                 println!("{}", print_message);
                 execute_timer(break_duration, &receiver, end_event);
