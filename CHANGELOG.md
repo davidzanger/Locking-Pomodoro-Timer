@@ -18,6 +18,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Security
 
+## 0.4.0 - 2024-04-18
+
+### Changed
+
+- Change the print statements to be more concise and informative like `Current: Pomodoro (1 min) | Upcoming: Additional 1 min | Pomodoros till long break: 4 (11 min)`.
+
 ## 0.3.1 - 2024-04-17
 
 ### Fixed
