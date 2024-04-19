@@ -1,6 +1,8 @@
 use crate::end_events::{display_screensaver_and_lock_screen, play_sound};
 use crate::pomodoro_options::read_options_from_json;
 use crate::timer::Timer;
+use crate::pomo_info::PomoInfo;
+use crate::message_creator::{generate_print_message_before_additional_break, generate_print_message_before_break, generate_print_message_before_pomodoro};
 use crossterm::event::{read, Event, KeyCode};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -12,6 +14,8 @@ use std::time::Duration;
 mod end_events;
 mod pomodoro_options;
 mod timer;
+mod message_creator;
+mod pomo_info;
 
 fn main() {
     env_logger::init();
@@ -49,84 +53,16 @@ fn start_pomodoro(options: &PomodoroOptions) {
         } else {
             input = "".to_string();
         }
+
         if input.trim().is_empty() {
-            let pomodoros_till_long_break =
-                options.interval_long_break - counter % options.interval_long_break;
-            let minutes_till_long_break = pomodoros_till_long_break
-                * (options.duration_pomodoro + options.additional_duration)
-                + (pomodoros_till_long_break - 1) * options.duration_short_break;
-            let is_long_break_coming =
-                counter % options.interval_long_break == options.interval_long_break - 1;
-            let break_duration: Duration;
-            if is_long_break_coming {
-                break_duration = Duration::from_secs((options.duration_long_break * 60) as u64)
-            } else {
-                break_duration = Duration::from_secs((options.duration_short_break * 60) as u64)
-            };
-            let mut print_message =
-                format!("Current: Pomodoro ({:.0} min)", options.duration_pomodoro);
-            if !additional_duration.is_zero() {
-                print_message += &format!(
-                    " | Upcoming: Additional {} min",
-                    additional_duration.as_secs() / 60
-                );
-            } else if !break_duration.is_zero() && is_long_break_coming {
-                print_message += &format!(
-                    " | Upcoming: Long break ({:.0} min)",
-                    options.duration_long_break
-                );
-            } else if !break_duration.is_zero() && !is_long_break_coming {
-                print_message += &format!(
-                    " | Upcoming: Short break ({:.0} min)",
-                    options.duration_short_break
-                );
-            } else if break_duration.is_zero() {
-                print_message += &format!(
-                    " | Upcoming: Pomodoro ({:.0} min)",
-                    options.duration_pomodoro
-                );
-            } else {
-                panic!("Invalid state. This line should not be reached.");
-            }
-            print_message += &format!(
-                " | Pomodoros till long break: {} ({} min)",
-                pomodoros_till_long_break, minutes_till_long_break
-            );
+            let pomo_info = PomoInfo::from_options(options, counter);
+
+            let print_message = generate_print_message_before_pomodoro(&pomo_info, &options);
             println!("{}", print_message);
 
             execute_timer(duration, &receiver, end_event);
-            if !additional_duration.is_zero() {
-                let mut print_message = format!(
-                    "Current: Additional ({:.0} min).",
-                    additional_duration.as_secs() / 60
-                );
-                if !break_duration.is_zero() && is_long_break_coming {
-                    print_message += &format!(
-                        " | Upcoming: Long break ({:.0} min)",
-                        options.duration_long_break
-                    );
-                } else if !break_duration.is_zero() && !is_long_break_coming {
-                    print_message += &format!(
-                        " | Upcoming: Short break ({:.0} min)",
-                        options.duration_short_break
-                    );
-                } else if break_duration.is_zero() {
-                    print_message += &format!(
-                        " | Upcoming: Pomodoro ({:.0} min)",
-                        options.duration_pomodoro
-                    );
-                } else {
-                    panic!("Invalid state. This line should not be reached.");
-                }
-                let minutes_till_long_break = pomodoros_till_long_break
-                    * options.additional_duration
-                    + (pomodoros_till_long_break - 1)
-                        * (options.duration_short_break + options.duration_pomodoro);
-                print_message += &format!(
-                    " | Pomodoros till long break: {} ({} min)",
-                    pomodoros_till_long_break - 1,
-                    minutes_till_long_break
-                );
+            if options.additional_duration != 0 {
+                let print_message = generate_print_message_before_additional_break(&pomo_info, &options);
                 println!("{}", print_message);
                 time_with_progress_bar(
                     additional_duration,
@@ -134,47 +70,26 @@ fn start_pomodoro(options: &PomodoroOptions) {
                     display_screensaver_and_lock_screen,
                 );
             }
-            if !break_duration.is_zero() {
+            if !pomo_info.break_duration.is_zero() {
                 if !options.auto_start_break {
-                    if is_long_break_coming {
+                    if pomo_info.is_long_break_coming {
                         println!(
                             "Press enter to start the long break of {:.0} minutes.",
-                            break_duration.as_secs() / 60
+                            pomo_info.break_duration.as_secs() / 60
                         );
                     } else {
                         println!(
                             "Press enter to start the short break of {:.0} minutes.",
-                            break_duration.as_secs() / 60
+                            pomo_info.break_duration.as_secs() / 60
                         );
                     }
                     std::io::stdin()
                         .read_line(&mut input)
                         .expect("Failed to read input.");
                 }
-                let mut print_message = format!(
-                    "Current: {} break ({:.0} min).",
-                    if is_long_break_coming {
-                        "Long"
-                    } else {
-                        "Short"
-                    },
-                    break_duration.as_secs() / 60
-                );
-                print_message += &format!(
-                    " | Upcoming: Pomodoro ({:.0} min)",
-                    options.duration_pomodoro
-                );
-                let minutes_till_long_break = (pomodoros_till_long_break - 1)
-                    * (options.duration_pomodoro
-                        + options.duration_short_break
-                        + options.additional_duration);
-                print_message += &format!(
-                    " | Pomodoros till long break: {} ({} min)",
-                    pomodoros_till_long_break - 1,
-                    minutes_till_long_break
-                );
+                let print_message = generate_print_message_before_break(&pomo_info, &options);
                 println!("{}", print_message);
-                execute_timer(break_duration, &receiver, end_event);
+                execute_timer(pomo_info.break_duration, &receiver, end_event);
             }
         } else {
             break;
@@ -182,6 +97,8 @@ fn start_pomodoro(options: &PomodoroOptions) {
         counter += 1;
     }
 }
+
+
 
 fn execute_timer<F>(duration: Duration, receiver: &std::sync::mpsc::Receiver<String>, end_event: F)
 where
