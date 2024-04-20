@@ -1,21 +1,25 @@
 use crate::end_events::{display_screensaver_and_lock_screen, play_sound};
+use crate::message_creator::{
+    generate_print_message_before_additional_break, generate_print_message_before_break,
+    generate_print_message_before_pomodoro,
+};
+use crate::pomo_info::PomoInfo;
 use crate::pomodoro_options::read_options_from_json;
 use crate::timer::Timer;
-use crate::pomo_info::PomoInfo;
-use crate::message_creator::{generate_print_message_before_additional_break, generate_print_message_before_break, generate_print_message_before_pomodoro};
 use crossterm::event::{read, Event, KeyCode};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, trace};
 use pomodoro_options::PomodoroOptions;
+use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 mod end_events;
-mod pomodoro_options;
-mod timer;
 mod message_creator;
 mod pomo_info;
+mod pomodoro_options;
+mod timer;
 
 fn main() {
     env_logger::init();
@@ -46,10 +50,17 @@ fn start_pomodoro(options: &PomodoroOptions) {
     loop {
         if counter != 0 && !options.auto_start_pomodoro {
             input.clear();
-            println!("Do you want to repeat the timer? (Press enter to repeat, type anything else and press enter to exit)");
-            std::io::stdin()
-                .read_line(&mut input)
-                .expect("Failed to read input.");
+            println!("Do you want to repeat the timer? (Press enter to repeat and 'q' to quit.)");
+            loop {
+                let pressed_key = receiver.recv().expect("Failed to receive input.");
+                if pressed_key == "q" {
+                    input = "q".to_string();
+                    break;
+                } else if pressed_key == "\n" {
+                    input = "".to_string();
+                    break;
+                }
+            }
         } else {
             input = "".to_string();
         }
@@ -62,7 +73,8 @@ fn start_pomodoro(options: &PomodoroOptions) {
 
             execute_timer(duration, &receiver, end_event);
             if options.additional_duration != 0 {
-                let print_message = generate_print_message_before_additional_break(&pomo_info, &options);
+                let print_message =
+                    generate_print_message_before_additional_break(&pomo_info, &options);
                 println!("{}", print_message);
                 time_with_progress_bar(
                     additional_duration,
@@ -83,9 +95,13 @@ fn start_pomodoro(options: &PomodoroOptions) {
                             pomo_info.break_duration.as_secs() / 60
                         );
                     }
-                    std::io::stdin()
-                        .read_line(&mut input)
-                        .expect("Failed to read input.");
+                    loop {
+                        let pressed_key = receiver.recv().expect("Failed to receive input.");
+                        if pressed_key == "\n" {
+                            input = "".to_string();
+                            break;
+                        }
+                    }
                 }
                 let print_message = generate_print_message_before_break(&pomo_info, &options);
                 println!("{}", print_message);
@@ -97,8 +113,6 @@ fn start_pomodoro(options: &PomodoroOptions) {
         counter += 1;
     }
 }
-
-
 
 fn execute_timer<F>(duration: Duration, receiver: &std::sync::mpsc::Receiver<String>, end_event: F)
 where
@@ -162,26 +176,38 @@ fn start_input_stream() -> std::sync::mpsc::Receiver<String> {
             trace!("Spawning input thread.");
             enable_raw_mode().expect("Failed to enable raw mode.");
             loop {
-                if let Ok(Event::Key(key_event)) = read() {
-                    debug!("Received key event: {:?}", key_event);
-                    if key_event.kind != crossterm::event::KeyEventKind::Press {
-                        continue;
-                    }
-                    if key_event.code == KeyCode::Char('c')
-                        && key_event.modifiers == crossterm::event::KeyModifiers::CONTROL
-                    {
-                        debug!("Exiting the program.");
-                        sender
-                            .send("ctrl+c".to_string())
-                            .expect("Failed to send input.");
-                        disable_raw_mode().expect("Failed to disable raw mode.");
-                        break;
-                    } else if let KeyCode::Char(c) = key_event.code {
-                        sender.send(c.to_string()).expect("Failed to send input.");
-                    }
+                let exit = process_key_event(&sender);
+                if exit {
+                    break;
                 }
             }
         })
         .expect("Failed to spawn input thread.");
     receiver
+}
+
+fn process_key_event(sender: &std::sync::mpsc::Sender<String>) -> bool {
+    let mut exit = false;
+    if let Ok(Event::Key(key_event)) = read() {
+        debug!("Received key event: {:?}", key_event);
+        if key_event.kind != crossterm::event::KeyEventKind::Press {
+            if key_event.code == KeyCode::Char('c')
+                && key_event.modifiers == crossterm::event::KeyModifiers::CONTROL
+            {
+                debug!("Exiting the program.");
+                sender
+                    .send("ctrl+c".to_string())
+                    .expect("Failed to send input.");
+                disable_raw_mode().expect("Failed to disable raw mode.");
+                exit = true;
+            } else if let KeyCode::Char(c) = key_event.code {
+                sender.send(c.to_string()).expect("Failed to send input.");
+            } else if key_event.code == KeyCode::Enter {
+                sender
+                    .send("\n".to_string())
+                    .expect("Failed to send input.");
+            }
+        }
+    }
+    exit
 }

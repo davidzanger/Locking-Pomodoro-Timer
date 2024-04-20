@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Could not press enter anymore to start a new Pomodoro session after a break. This was fixed by only using the receiver for key events and not `std::io::stdin`.
+
 ### Security
 
 ## 0.4.0 - 2024-04-18
