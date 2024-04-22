@@ -6,12 +6,9 @@ use crate::message_creator::{
 use crate::pomo_info::PomoInfo;
 use crate::pomodoro_options::read_options_from_json;
 use crate::timer::Timer;
-use crossterm::event::{read, Event, KeyCode};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use indicatif::{ProgressBar, ProgressStyle};
-use log::{debug, trace};
+use log::debug;
 use pomodoro_options::PomodoroOptions;
-use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
@@ -20,6 +17,8 @@ mod message_creator;
 mod pomo_info;
 mod pomodoro_options;
 mod timer;
+mod input_handler;
+
 
 fn main() {
     env_logger::init();
@@ -46,7 +45,7 @@ fn start_pomodoro(options: &PomodoroOptions) {
         play_sound(PathBuf::from(options.filepath_sound.clone()));
     };
     debug!("Starting input stream.");
-    let receiver = start_input_stream();
+    let receiver = input_handler::start_input_stream();
     loop {
         if counter != 0 && !options.auto_start_pomodoro {
             input.clear();
@@ -168,46 +167,3 @@ fn time_with_progress_bar<F: Fn()>(
     end_event();
 }
 
-fn start_input_stream() -> std::sync::mpsc::Receiver<String> {
-    let (sender, receiver) = std::sync::mpsc::channel::<String>();
-    std::thread::Builder::new()
-        .name("input_stream".to_string())
-        .spawn(move || {
-            trace!("Spawning input thread.");
-            enable_raw_mode().expect("Failed to enable raw mode.");
-            loop {
-                let exit = process_key_event(&sender);
-                if exit {
-                    break;
-                }
-            }
-        })
-        .expect("Failed to spawn input thread.");
-    receiver
-}
-
-fn process_key_event(sender: &std::sync::mpsc::Sender<String>) -> bool {
-    let mut exit = false;
-    if let Ok(Event::Key(key_event)) = read() {
-        debug!("Received key event: {:?}", key_event);
-        if key_event.kind != crossterm::event::KeyEventKind::Press {
-            if key_event.code == KeyCode::Char('c')
-                && key_event.modifiers == crossterm::event::KeyModifiers::CONTROL
-            {
-                debug!("Exiting the program.");
-                sender
-                    .send("ctrl+c".to_string())
-                    .expect("Failed to send input.");
-                disable_raw_mode().expect("Failed to disable raw mode.");
-                exit = true;
-            } else if let KeyCode::Char(c) = key_event.code {
-                sender.send(c.to_string()).expect("Failed to send input.");
-            } else if key_event.code == KeyCode::Enter {
-                sender
-                    .send("\n".to_string())
-                    .expect("Failed to send input.");
-            }
-        }
-    }
-    exit
-}
