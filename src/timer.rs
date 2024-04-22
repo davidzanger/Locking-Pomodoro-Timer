@@ -12,8 +12,6 @@ pub(crate) struct Timer {
     elapsed_time: Arc<AtomicU32>,
     paused: Arc<AtomicBool>,
     should_terminate: Arc<AtomicBool>,
-    // TODO: Handle the end event.
-    end_event: Option<Box<dyn Fn()>>,
 }
 
 impl Timer {
@@ -23,7 +21,6 @@ impl Timer {
             elapsed_time: Arc::new(AtomicU32::new(0)),
             paused: Arc::new(AtomicBool::new(false)),
             should_terminate: Arc::new(AtomicBool::new(false)),
-            end_event: None,
         }
     }
 
@@ -73,10 +70,6 @@ impl Timer {
     pub fn get_elapsed_time(&self) -> Duration {
         let elapsed_time = self.elapsed_time.load(Ordering::Relaxed);
         Duration::from_secs(elapsed_time as u64)
-    }
-
-    pub fn reset(&self) {
-        self.elapsed_time.store(0, Ordering::Relaxed);
     }
 }
 
