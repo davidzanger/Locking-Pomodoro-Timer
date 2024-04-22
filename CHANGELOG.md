@@ -10,17 +10,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- Further refined print statement during additional duration and break.
-
 ### Deprecated
 
 ### Removed
 
 ### Fixed
 
-- Could not press enter anymore to start a new Pomodoro session after a break. This was fixed by only using the receiver for key events and not `std::io::stdin`.
-
 ### Security
+
+## 0.4.1 - 2024-04-22
+
+### Changed
+
+- Further refined print statement during additional duration and break.
+
+### Fixed
+
+- Could not press enter anymore to start a new Pomodoro session after a break. This was fixed by only using the receiver for key events and not `std::io::stdin`. This is only important when auto start pomodoro or break is disabled.
 
 ## 0.4.0 - 2024-04-18
 
