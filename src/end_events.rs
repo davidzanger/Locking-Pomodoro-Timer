@@ -6,7 +6,7 @@ pub fn display_screensaver_and_lock_screen() {
         display_screensaver_and_lock_screen_on_windows();
     } else {
         // TODO: Implement for Linux and macOS.
-        unimplemented!("This feature is not implemented for this platform.")
+        todo!("This feature is not implemented for this platform.")
     }
 }
 pub fn display_screensaver_and_lock_screen_on_windows() {
