@@ -1,10 +1,12 @@
 use anyhow::{Context, Result};
-use project_root::get_project_root;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
+use thiserror::Error;
+#[cfg(test)]
+use project_root::get_project_root;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", default = "PomodoroOptions::default")]
@@ -27,6 +29,19 @@ pub struct PomodoroOptions {
     /// The interval in number of Pomodoro sessions after which a long break should be taken.
     pub interval_long_break: i32,
 }
+#[derive(Error, Debug)]
+pub(crate) enum VerificationError {
+    #[error("Pomodoro duration should be at least 1 minute.")]
+    InvalidDuration,
+    #[error("Additional duration should be at least 0 minute.")]
+    InvalidAdditionalDuration,
+    #[error("Short break duration should be at least 1 minute.")]
+    InvalidShortBreakDuration,
+    #[error("Long break duration should be at least 1 minute.")]
+    InvalidLongBreakDuration,
+    #[error("Sound file does not exist.")]
+    InvalidSoundFile,
+}
 
 impl Default for PomodoroOptions {
     fn default() -> Self {
@@ -44,21 +59,21 @@ impl Default for PomodoroOptions {
 }
 
 impl PomodoroOptions {
-    fn verify(&self) -> Result<(), String> {
+    fn verify(&self) -> Result<(), VerificationError> {
         if self.duration_pomodoro < 1 {
-            return Err("Pomodoro duration should be at least 1 minute.".to_string());
+            return Err(VerificationError::InvalidDuration);
         }
         if self.additional_duration < 0 {
-            return Err("Additional duration should be at least 0 minute.".to_string());
+            return Err(VerificationError::InvalidAdditionalDuration);
         }
         if self.duration_short_break < 1 {
-            return Err("Short break duration should be at least 1 minute.".to_string());
+            return Err(VerificationError::InvalidShortBreakDuration);
         }
         if self.duration_long_break < 1 {
-            return Err("Long break duration should be at least 1 minute.".to_string());
+            return Err(VerificationError::InvalidLongBreakDuration);
         }
-        if !PathBuf::from(&self.filepath_sound).is_file() || !self.filepath_sound.is_empty() {
-            return Err("Sound file does not exist.".to_string());
+        if !PathBuf::from(&self.filepath_sound).is_file() && !self.filepath_sound.is_empty() {
+            return Err(VerificationError::InvalidSoundFile);
         }
         Ok(())
     }
@@ -81,9 +96,13 @@ pub fn read_options_from_json(filepath_json: Option<PathBuf>) -> Result<Pomodoro
 
     let mut data: PomodoroOptions = serde_json::from_str(&contents)
         .with_context(|| format!("Failed to parse JSON file: {:?}", file_path))?;
-    if !PathBuf::from(data.filepath_sound.clone()).is_file() && !data.filepath_sound.is_empty() {
-        println!("Sound file does not exist. Using default sound.");
-        data.filepath_sound = "".to_string();
+    match data.verify() {
+        Ok(_) => (),
+        Err(VerificationError::InvalidSoundFile) => {
+            println!("Sound file does not exist. Using default sound.");
+            data.filepath_sound = "".to_string();
+        }
+        Err(e) => return Err(e.into()),
     }
     Ok(data)
 }
@@ -94,6 +113,7 @@ fn get_folderpath_executable() -> Result<PathBuf> {
     file_path.pop();
     Ok(file_path)
 }
+
 
 #[test]
 fn test_read_options_from_json() {
