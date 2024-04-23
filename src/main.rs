@@ -34,7 +34,7 @@ fn main() {
 
 fn start_pomodoro(options: &PomodoroOptions) {
     // Use the imported data
-    println!("{:#?}", options);
+    println!("Options: {}", serde_json::to_string_pretty(options).unwrap());
     let duration: Duration = Duration::from_secs((options.duration_pomodoro * 60) as u64);
     let additional_duration: Duration =
         Duration::from_secs((options.additional_duration * 60) as u64);
