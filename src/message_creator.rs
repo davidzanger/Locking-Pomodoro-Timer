@@ -72,7 +72,7 @@ pub(crate) fn generate_print_message_before_additional_break(
         + (pomo_info.pomodoros_till_long_break - 1)
             * (options.duration_short_break + options.duration_pomodoro);
     let (current, current_duration, upcoming, upcoming_duration); 
-    current = "Additional";
+    current = "Additional Pomodoro";
     current_duration = options.additional_duration;
     if !pomo_info.break_duration.is_zero() && pomo_info.is_long_break_coming {
         upcoming = "Long break";
