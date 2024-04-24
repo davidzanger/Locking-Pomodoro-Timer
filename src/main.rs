@@ -1,4 +1,4 @@
-use crate::end_events::{display_screensaver_and_lock_screen, play_sound};
+use crate::end_events::start_end_event;
 use crate::message_creator::{
     generate_print_message_before_additional_break, generate_print_message_before_break,
     generate_print_message_before_pomodoro,
@@ -9,7 +9,6 @@ use crate::timer::Timer;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
 use pomodoro_options::PomodoroOptions;
-use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 mod end_events;
@@ -42,7 +41,7 @@ fn start_pomodoro(options: &PomodoroOptions) {
     let mut counter = 0;
     let mut input = String::new();
     let end_event = || {
-        play_sound(PathBuf::from(options.filepath_sound.clone()));
+        start_end_event(&options.end_event_pomodoro);
     };
     debug!("Starting input stream.");
     let receiver = input_handler::start_input_stream();
@@ -78,7 +77,7 @@ fn start_pomodoro(options: &PomodoroOptions) {
                 time_with_progress_bar(
                     additional_duration,
                     &receiver,
-                    display_screensaver_and_lock_screen,
+                    || start_end_event(&options.end_event_additional_pomodoro),
                 );
             }
             if !pomo_info.break_duration.is_zero() {

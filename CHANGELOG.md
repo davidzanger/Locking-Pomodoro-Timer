@@ -8,7 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Add keys for custom end events in the JSON options file. The new keys are `endEventPomodoro` and `endEventAdditionalPomodoro`. The current options are `sound` where a sound file must be specified (empty string results in default sound) and `lockScreen`. You can use them for example like:
+   
+    ```json
+    {
+        "endEventPomodoro": {
+            "sound": {
+                "filepathSound": ""
+            }
+        },
+        "endEventAdditionalPomodoro": "lockScreen"
+    }
+    ```
+
 - Add input validation for JSON configuration file.
+
 
 ### Changed
 

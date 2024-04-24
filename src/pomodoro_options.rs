@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 use thiserror::Error;
+use crate::end_events::EndEvent;
 #[cfg(test)]
 use project_root::get_project_root;
 
@@ -28,6 +29,10 @@ pub struct PomodoroOptions {
     pub auto_start_pomodoro: bool,
     /// The interval in number of Pomodoro sessions after which a long break should be taken.
     pub interval_long_break: i32,
+    /// The end event to be executed after a Pomodoro session ends.
+    pub end_event_pomodoro: EndEvent,
+    /// The end event to be executed after the additional Pomodoro after a Pomodoro session ends.
+    pub end_event_additional_pomodoro: EndEvent,
 }
 #[derive(Error, Debug)]
 pub(crate) enum VerificationError {
@@ -54,6 +59,8 @@ impl Default for PomodoroOptions {
             auto_start_break: true,
             auto_start_pomodoro: true,
             interval_long_break: 4,
+            end_event_pomodoro: EndEvent::Sound{filepath_sound: PathBuf::new()},
+            end_event_additional_pomodoro: EndEvent::LockScreen,
         }
     }
 }
