@@ -4,11 +4,11 @@ use crate::message_creator::{
     generate_print_message_before_pomodoro,
 };
 use crate::pomo_info::PomoInfo;
-use crate::pomodoro_options::read_options_from_json;
+use crate::pomodoro_options::{read_options_from_json, write_default_options_to_json_next_to_executable};
 use crate::timer::Timer;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
-use pomodoro_options::PomodoroOptions;
+use crate::pomodoro_options::{PomodoroOptions, PomodoroOptionsError};
 use std::thread;
 use std::time::Duration;
 mod end_events;
@@ -23,11 +23,28 @@ fn main() {
     env_logger::init();
     // Read the JSON file
     let data = read_options_from_json(None);
-    let json_data = data.unwrap_or_else(|e| {
-        eprintln!("Error: {:#}", e);
-        eprintln!("Using default options.");
-        PomodoroOptions::default()
-    });
+    let json_data = match data {
+        Ok(json_data) => json_data,
+        Err(e)=>{
+            match e.downcast_ref::<PomodoroOptionsError>() {
+                Some(PomodoroOptionsError::OptionFileNotFound(_)) => {
+                    write_default_options_to_json_next_to_executable().expect("Failed to write default options to JSON file.");
+                    println!(
+                        "Apparently, you are using the Locking Pomodoro Timer for the first time (at least in this folder). \
+                        A file named 'pomodoro_options.json' will be created next to the executable. \
+                        You can change the settings in this file. \
+                        To find more information about the Locking Pomodoro Timer, visit the GitHub page: \
+                        https://github.com/davidzanger/Locking-Pomodoro-Timer.git");
+                    PomodoroOptions::default()
+                    }
+                None => {
+                    eprintln!("Error: {:#}", e);
+                    eprintln!("Using default options.");
+                    PomodoroOptions::default()
+                }
+            }
+        }
+    };
     start_pomodoro(&json_data);
 }
 

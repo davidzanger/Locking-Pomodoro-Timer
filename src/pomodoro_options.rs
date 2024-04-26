@@ -1,13 +1,13 @@
+use crate::end_events::EndEvent;
 use anyhow::{Context, Result};
+#[cfg(test)]
+use project_root::get_project_root;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 use thiserror::Error;
-use crate::end_events::EndEvent;
-#[cfg(test)]
-use project_root::get_project_root;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", default = "PomodoroOptions::default")]
@@ -56,7 +56,9 @@ impl Default for PomodoroOptions {
             auto_start_break: true,
             auto_start_pomodoro: true,
             interval_long_break: 4,
-            end_event_pomodoro: EndEvent::Sound{filepath_sound: PathBuf::new()},
+            end_event_pomodoro: EndEvent::Sound {
+                filepath_sound: PathBuf::new(),
+            },
             end_event_additional_pomodoro: EndEvent::LockScreen,
         }
     }
@@ -76,30 +78,35 @@ impl PomodoroOptions {
         if self.duration_long_break < 0 {
             return Err(VerificationError::InvalidLongBreakDuration);
         }
-        if let EndEvent::Sound{filepath_sound} = &self.end_event_pomodoro{
+        if let EndEvent::Sound { filepath_sound } = &self.end_event_pomodoro {
             if !PathBuf::from(&filepath_sound).is_file() && !filepath_sound.as_os_str().is_empty() {
                 return Err(VerificationError::InvalidSoundFile);
             }
-        } 
-        if let EndEvent::Sound{filepath_sound} = &self.end_event_additional_pomodoro{
+        }
+        if let EndEvent::Sound { filepath_sound } = &self.end_event_additional_pomodoro {
             if !PathBuf::from(&filepath_sound).is_file() && !filepath_sound.as_os_str().is_empty() {
                 return Err(VerificationError::InvalidSoundFile);
             }
-        } 
+        }
 
         Ok(())
     }
 }
+
+#[derive(Error, Debug)]
+pub(crate) enum PomodoroOptionsError {
+    #[error("Failed to read options from JSON file at path: {:?}", _0)]
+    OptionFileNotFound(PathBuf),
+}
+
 pub fn read_options_from_json(filepath_json: Option<PathBuf>) -> Result<PomodoroOptions> {
-    let filename = "pomodoro_options.json";
     let file_path = match filepath_json {
         Some(path) => path,
-        None => {
-            let mut path = get_folderpath_executable()?;
-            path.push(filename);
-            path
-        }
+        None => get_filepath_options_next_to_executable()?,
     };
+    if !file_path.is_file() {
+        return Err(PomodoroOptionsError::OptionFileNotFound(file_path).into());
+    }
     let mut file =
         File::open(&file_path).with_context(|| format!("Failed to open file: {:?}", file_path))?;
     let mut contents = String::new();
@@ -112,10 +119,10 @@ pub fn read_options_from_json(filepath_json: Option<PathBuf>) -> Result<Pomodoro
         Ok(_) => (),
         Err(VerificationError::InvalidSoundFile) => {
             println!("Sound file does not exist. Using default sound.");
-            if let EndEvent::Sound{filepath_sound} = &mut data.end_event_pomodoro{
+            if let EndEvent::Sound { filepath_sound } = &mut data.end_event_pomodoro {
                 *filepath_sound = PathBuf::new();
             }
-            if let EndEvent::Sound{filepath_sound} = &mut data.end_event_additional_pomodoro{
+            if let EndEvent::Sound { filepath_sound } = &mut data.end_event_additional_pomodoro {
                 *filepath_sound = PathBuf::new();
             }
         }
@@ -124,13 +131,36 @@ pub fn read_options_from_json(filepath_json: Option<PathBuf>) -> Result<Pomodoro
     Ok(data)
 }
 
+pub(crate) fn write_default_options_to_json_next_to_executable() -> Result<()> {
+    let file_path = get_filepath_options_next_to_executable()?;
+    let options = PomodoroOptions::default();
+    write_options_to_json(&file_path, &options)
+}
+
+pub(crate) fn write_options_to_json(
+    file_path: &PathBuf,
+    options: &PomodoroOptions) -> Result<()> {
+    let file = File::create(&file_path)
+        .with_context(|| format!("Failed to create file: {:?}", file_path))?;
+    serde_json::to_writer_pretty(file, options)
+        .with_context(|| format!("Failed to write to file: {:?}", file_path))?;
+    Ok(())
+}
+
+fn get_filepath_options_next_to_executable() -> Result<PathBuf> {
+    let filename = "pomodoro_options.json";
+    let mut path = get_folderpath_executable()?;
+    path.push(filename);
+    Ok(path)
+}
+
 fn get_folderpath_executable() -> Result<PathBuf> {
     let exe_path = env::current_exe().context("Failed to get executable path.")?;
     let mut file_path = exe_path.clone();
+    // Remove the executable name, keep the folder path.
     file_path.pop();
     Ok(file_path)
 }
-
 
 #[test]
 fn test_read_options_from_json() {
