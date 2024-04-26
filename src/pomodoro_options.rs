@@ -21,8 +21,6 @@ pub struct PomodoroOptions {
     pub duration_short_break: i32,
     /// The duration of a long break in minutes.
     pub duration_long_break: i32,
-    /// The filepath to the sound file to be played when a Pomodoro session ends.
-    pub filepath_sound: String,
     /// Flag indicating whether to automatically start a break after a Pomodoro session ends.
     pub auto_start_break: bool,
     /// Flag indicating whether to automatically start a new Pomodoro session after a break ends.
@@ -40,9 +38,9 @@ pub(crate) enum VerificationError {
     InvalidDuration,
     #[error("Additional duration should be at least 0 minute.")]
     InvalidAdditionalDuration,
-    #[error("Short break duration should be at least 1 minute.")]
+    #[error("Short break duration should be at least 0 minute.")]
     InvalidShortBreakDuration,
-    #[error("Long break duration should be at least 1 minute.")]
+    #[error("Long break duration should be at least 0 minute.")]
     InvalidLongBreakDuration,
     #[error("Sound file does not exist.")]
     InvalidSoundFile,
@@ -55,7 +53,6 @@ impl Default for PomodoroOptions {
             additional_duration: 5,
             duration_short_break: 5,
             duration_long_break: 15,
-            filepath_sound: "".to_string(),
             auto_start_break: true,
             auto_start_pomodoro: true,
             interval_long_break: 4,
@@ -73,15 +70,23 @@ impl PomodoroOptions {
         if self.additional_duration < 0 {
             return Err(VerificationError::InvalidAdditionalDuration);
         }
-        if self.duration_short_break < 1 {
+        if self.duration_short_break < 0 {
             return Err(VerificationError::InvalidShortBreakDuration);
         }
-        if self.duration_long_break < 1 {
+        if self.duration_long_break < 0 {
             return Err(VerificationError::InvalidLongBreakDuration);
         }
-        if !PathBuf::from(&self.filepath_sound).is_file() && !self.filepath_sound.is_empty() {
-            return Err(VerificationError::InvalidSoundFile);
-        }
+        if let EndEvent::Sound{filepath_sound} = &self.end_event_pomodoro{
+            if !PathBuf::from(&filepath_sound).is_file() && !filepath_sound.as_os_str().is_empty() {
+                return Err(VerificationError::InvalidSoundFile);
+            }
+        } 
+        if let EndEvent::Sound{filepath_sound} = &self.end_event_additional_pomodoro{
+            if !PathBuf::from(&filepath_sound).is_file() && !filepath_sound.as_os_str().is_empty() {
+                return Err(VerificationError::InvalidSoundFile);
+            }
+        } 
+
         Ok(())
     }
 }
@@ -107,7 +112,12 @@ pub fn read_options_from_json(filepath_json: Option<PathBuf>) -> Result<Pomodoro
         Ok(_) => (),
         Err(VerificationError::InvalidSoundFile) => {
             println!("Sound file does not exist. Using default sound.");
-            data.filepath_sound = "".to_string();
+            if let EndEvent::Sound{filepath_sound} = &mut data.end_event_pomodoro{
+                *filepath_sound = PathBuf::new();
+            }
+            if let EndEvent::Sound{filepath_sound} = &mut data.end_event_additional_pomodoro{
+                *filepath_sound = PathBuf::new();
+            }
         }
         Err(e) => return Err(e.into()),
     }
@@ -136,5 +146,4 @@ fn test_read_options_from_json() {
     assert_eq!(options.additional_duration, 5);
     assert_eq!(options.duration_short_break, 5);
     assert_eq!(options.duration_long_break, 15);
-    assert_eq!(options.filepath_sound, "");
 }
