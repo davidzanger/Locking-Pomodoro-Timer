@@ -8,8 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## 0.5.0 - 2024-04-24
+
+### Added
+
 - Add keys for custom end events in the JSON options file. The new keys are `endEventPomodoro` and `endEventAdditionalPomodoro`. The current options are `sound` where a sound file must be specified (empty string results in default sound) and `lockScreen`. You can use them for example like:
-   
+
     ```json
     {
         "endEventPomodoro": {
@@ -28,13 +42,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Change printing of options to JSON format.
 
-### Deprecated
-
-### Removed
-
 ### Fixed
 
-### Security
+- Verification of options. 0 minutes for breaks are now allowed.
 
 ## 0.4.1 - 2024-04-22
 
