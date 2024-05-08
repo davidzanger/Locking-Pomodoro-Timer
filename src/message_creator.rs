@@ -1,8 +1,10 @@
+/// This module contains functions and structs related to creating terminal print messages for the Pomodoro app.
 use crate::pomodoro_options::PomodoroOptions;
 
 use crate::pomo_info::PomoInfo;
 
 
+/// Represents the data needed to create a terminal print message for the Pomodoro app.
 struct MessageData<'a> {
     current: &'a str,
     current_duration: i32,
@@ -13,6 +15,11 @@ struct MessageData<'a> {
 }
 
 impl MessageData<'_> {
+    /// Generates a formatted print message with the current, upcoming, and pomodoro till long break information.
+    ///
+    /// # Returns
+    ///
+    /// A string containing the formatted print message.
     fn generate_print_message(&self) -> String {
         format!(
             "Current: {} ({:.0} min) | Upcoming: {} ({:.0} min) | Pomodoros till long break: {} ({:.0} min)",
@@ -24,9 +31,22 @@ impl MessageData<'_> {
             self.minutes_till_long_break
         )
     }
-    
 }
 
+/// Generates a print message to be displayed before starting a pomodoro.
+///
+/// # Arguments
+///
+/// * `pomo_info` - The Pomodoro information.
+/// * `options` - The Pomodoro options.
+///
+/// # Returns
+///
+/// A string containing the formatted print message.
+///
+/// # Panics
+///
+/// Panics if an invalid state is encountered.
 pub(crate) fn generate_print_message_before_pomodoro(
     pomo_info: &PomoInfo,
     options: &PomodoroOptions,
@@ -64,6 +84,20 @@ pub(crate) fn generate_print_message_before_pomodoro(
     print_message
 }
 
+/// Generates a print message to be displayed before starting an additional break.
+///
+/// # Arguments
+///
+/// * `pomo_info` - The Pomodoro information.
+/// * `options` - The Pomodoro options.
+///
+/// # Returns
+///
+/// A string containing the formatted print message.
+///
+/// # Panics
+///
+/// Panics if an invalid state is encountered.
 pub(crate) fn generate_print_message_before_additional_break(
     pomo_info: &PomoInfo,
     options: &PomodoroOptions,
@@ -98,6 +132,20 @@ pub(crate) fn generate_print_message_before_additional_break(
     print_message
 }
 
+/// Generates a print message to be displayed before starting a break.
+///
+/// # Arguments
+///
+/// * `pomo_info` - The Pomodoro information.
+/// * `options` - The Pomodoro options.
+///
+/// # Returns
+///
+/// A string containing the formatted print message.
+///
+/// # Panics
+///
+/// Panics if an invalid state is encountered.
 pub(crate) fn generate_print_message_before_break(
     pomo_info: &PomoInfo,
     options: &PomodoroOptions,
