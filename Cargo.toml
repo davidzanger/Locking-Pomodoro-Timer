@@ -1,7 +1,14 @@
 [package]
 name = "pomodoro"
-version = "0.5.0"
+version = "1.0.0"
 edition = "2021"
+authors = ["David Zanger"]
+license = "GPL-3.0"
+description = "A Pomodoro timer with the capability of locking the screen."
+readme = "README.md"
+repository = "https://github.com/davidzanger/Locking-Pomodoro-Timer"
+keywords = ["pomodoro", "timer","rust", "cli"]
+categories = ["command-line-utilities"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -16,6 +23,7 @@ log = "0.4.21"
 env_logger = "0.11.3"
 crossterm = "0.27.0"
 thiserror = "1.0.59"
+embed-doc-image = "0.1.4"
 
 [build-dependencies]
 winres = "0.1.12"
