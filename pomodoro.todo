@@ -1,14 +1,32 @@
 Quick:
-    ☐ Add better exception handling.
-    ☐ Add tests.
-    ☐ Add documentation.
-    ☐ Add logger.
-
-Soon:
-    ☐ Add api.
+    ☐ Upload to crates.io.
+        ☐ Read https://rust-cli.github.io/book/tutorial/packaging.html
+    ☐ Add API.
     ☐ Add flutter GUI.
-
+// Copy the images to the output when generating documentation
+    // From: https://stackoverflow.com/questions/67691701/how-to-use-a-local-file-as-crate-logo-when-generating-rustdoc
 Archive:
+  ✔ Add tests. @done(24-05-13 11:29) @project(Quick)
+  ✔ For example when duration is 0. @done(24-05-13 11:29) @project(Quick)
+  ✔ Add tests. @done(24-05-13 11:29) @project(Quick)
+  ✔ For example when duration is 0. @done(24-05-13 11:29) @project(Quick)
+  ✔ Add tests. @done(24-05-13 11:29) @project(Quick)
+  ✔ For example when duration is 0. @done(24-05-13 11:29) @project(Quick)
+  ✔ Read https://doc.rust-lang.org/rustdoc/index.html @done(24-05-08 12:38) @project(Quick)
+  ✔ https://stackoverflow.com/questions/67691701/how-to-use-a-local-file-as-crate-logo-when-generating-rustdoc @done(24-05-08 12:38) @project(Quick)
+  ✔ https://rust-lang.github.io/api-guidelines/documentation.html @done(24-05-08 12:38) @project(Quick)
+  ✔ Create options on first run. @done(24-04-29 15:40) @project(Quick)
+  ✔ Enum for end events. @done(24-04-24 17:52) @project(Quick)
+  ✔ Refactor message creator. @done(24-04-24 09:30) @project(Quick)
+  ✔ Verify options. @done(24-04-23 09:21) @project(Quick)
+  ✔ Add logger. @done(24-04-22 11:06) @project(Quick)
+  ✔ Add pause method. @done(24-04-22 11:06) @project(Quick)
+  ✔ Set default options. @done(24-04-11 11:35) @project(Quick)
+  ✔ Add changelog. @done(24-04-11 10:26) @project(Quick)
+  ✔ Implement long break shift option. @done(24-04-10 13:32) @project(Quick)
+  ✔ Add auto start pause option. @done(24-04-10 13:29) @project(Quick)
+  ✔ Implement drop method. @done(24-04-10 10:49) @project(Quick)
+  ✔ Add better exception handling. @done(24-04-08 10:34) @project(Quick)
   ✔ Add pause timer. @done(24-03-12 18:02) @project(Quick)
   ✔ Add progress bar. @done(24-03-12 14:40) @project(Quick)
   ✔ Add filepath sound. @done(24-03-12 13:16) @project(Quick)
