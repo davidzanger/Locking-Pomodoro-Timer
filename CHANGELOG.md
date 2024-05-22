@@ -8,8 +8,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Create default option JSON on first start.
-
 ### Changed
 
 ### Deprecated
@@ -19,6 +17,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 ### Security
+
+## 1.0.0 - 2024-05-22
+
+### Added
+
+- Create default option JSON on first start.
+- Upload package to crates.io.
+
+### Changed
+
+- Update README.md with installation instructions.
 
 ## 0.5.0 - 2024-04-24
 
