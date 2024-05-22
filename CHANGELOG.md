@@ -18,6 +18,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Security
 
+## 1.1.0 - 2024-05-22
+
+### Added
+
+- Add option to skip one minute of a Pomodoro session or a break by pressing `s`.
+
 ## 1.0.0 - 2024-05-22
 
 ### Added

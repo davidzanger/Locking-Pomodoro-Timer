@@ -1,3 +1,4 @@
+use log::trace;
 use std::{
     sync::{
         atomic::{AtomicBool, AtomicU32, Ordering},
@@ -6,10 +7,9 @@ use std::{
     thread,
     time::Duration,
 };
-use log::trace;
 
 /// Represents a timer that counts the elapsed time.
-/// 
+///
 /// The timer runs in a separate thread and counts the elapsed time in seconds.
 pub(crate) struct Timer {
     duration: Duration,
@@ -34,7 +34,7 @@ impl Timer {
     }
 
     /// Starts the timer in a separate thread.
-    /// 
+    ///
     /// The thread sleeps for 0.5 seconds and increments the elapsed time when more than 1 second has passed.
     /// The timer stops when the elapsed time reaches the specified duration.
     /// The timer can be paused and resumed using the `pause` and `resume` methods.
@@ -75,6 +75,19 @@ impl Timer {
     /// Resumes the timer.
     pub fn resume(&self) {
         self.paused.store(false, Ordering::Relaxed);
+    }
+
+    /// Skip specified duration.
+    pub fn skip(&self, duration: Duration) {
+        let elapsed_time = self.elapsed_time.load(Ordering::Relaxed);
+        let new_elapsed_time = elapsed_time + duration.as_secs() as u32;
+        if new_elapsed_time >= self.duration.as_secs() as u32 {
+            self.elapsed_time
+                .store(self.duration.as_secs() as u32, Ordering::Relaxed);
+            return;
+        } else {
+            self.elapsed_time.store(new_elapsed_time, Ordering::Relaxed);
+        }
     }
 
     /// Checks if the timer is currently paused.

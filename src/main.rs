@@ -194,7 +194,7 @@ fn time_with_progress_bar<F: Fn()>(
     );
     let delta: u64 = 1;
     timer.start();
-    println!("Press 'p' to pause, 'q' to quit current timer.");
+    println!("Press 'p' to pause, 'q' to quit current timer and 's' to skip 1 minute.");
     while timer.get_elapsed_time() < duration {
         if let Ok(input) = receiver.try_recv() {
             if input == "p" {
@@ -204,13 +204,19 @@ fn time_with_progress_bar<F: Fn()>(
             } else if input == "r" {
                 timer.resume();
                 println!("Timer resumed.");
-                println!("Press 'p' to pause, 'q' to quit current timer.");
+                println!("Press 'p' to pause, 'q' to quit current timer and 's' to skip 1 minute..");
                 bar = bar.with_elapsed(timer.get_elapsed_time());
                 bar.reset_eta();
             } else if input == "q" {
                 // Return early to not execute the end event.
                 println!("Exiting the current timer.");
                 return;
+            }else if input == "s" {
+                println!("Skipping 1 minute.");
+                timer.skip(Duration::from_secs(60));
+                bar = bar.with_elapsed(timer.get_elapsed_time());
+                bar.set_position(timer.get_elapsed_time().as_secs());
+                bar.reset_eta();
             } else if input == "ctrl+c" {
                 println!("Exiting the program.");
                 std::process::exit(0);
