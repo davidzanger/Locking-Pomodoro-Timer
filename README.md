@@ -1,5 +1,5 @@
 <!-- Improved compatibility of back to top link: See: https://github.com/othneildrew/Best-README-Template/pull/73 -->
-<a name="readme-top"></a>
+<a name="readme-top" id="readme-top"></a>
 <!--
 *** Thanks for checking out the Best-README-Template. If you have a suggestion
 *** that would make this better, please fork the repo and create a pull request
@@ -34,7 +34,7 @@
   <p align="center">
     A Pomodoro timer with the capability of locking the screen.
     <br />
-    <a href="TODO"><strong>Explore the docs »</strong></a>
+    <a href="https://docs.rs/crate/locking-pomodoro-timer/latest"><strong>Explore the docs »</strong></a>
     <br />
     <br />
     <a href="https://github.com/davidzanger/Locking-Pomodoro-Timer/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
@@ -90,7 +90,7 @@ The [Pomodoro technique](https://en.wikipedia.org/wiki/Pomodoro_Technique) is a 
 
 ### Download Executable
 
-The easiest way to use the Pomodoro timer is to download the executable from the [releases](TODO) page and run it on your machine.
+The easiest way to use the Pomodoro timer is to download the executable from the [releases](https://github.com/davidzanger/Locking-Pomodoro-Timer/releases) page and run it on your machine.
 If you want to build the project yourself, follow the instructions below.
 
 ### Prerequisites
@@ -156,7 +156,7 @@ For the `endEventPomodoro` and `endEventAdditionalPomodoro` fields, the followin
 - `sound`: Play a sound file. The path to the sound file must be provided in the `filepathSound` field. If the path is empty, the default sound will be played.
 - `lockScreen`: Lock the screen. This feature is currently only available on Windows.
 
-_For more details, please refer to the [Documentation](TODO)_
+_For more details, please refer to the [Documentation](https://docs.rs/crate/locking-pomodoro-timer/latest)_
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -198,15 +198,6 @@ Distributed under the GPL-3.0 License. See `LICENSE` for more information.
 ## Contact
 
 Project Link: [https://github.com/davidzanger/Locking-Pomodoro-Timer](https://github.com/davidzanger/Locking-Pomodoro-Timer)
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<!-- ACKNOWLEDGMENTS -->
-## Acknowledgments
-
-* []()
-* []()
-* []()
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
