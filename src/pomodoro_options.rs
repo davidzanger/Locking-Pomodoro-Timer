@@ -31,6 +31,12 @@ pub struct PomodoroOptions {
     pub end_event_pomodoro: EndEvent,
     /// The end event to be executed after the additional Pomodoro after a Pomodoro session ends.
     pub end_event_additional_pomodoro: EndEvent,
+    /// After a break ends, the interval in minutes after which a reminder should be triggered.
+    /// This shall remind the user to either go back to work or to start a new Pomodoro session if already working.
+    /// This option is only relevant if `auto_start_pomodoro` is `false`.
+    pub interval_reminder_after_break: i32,
+    /// The event to be executed after the reminder interval after a break ends.
+    pub event_reminder_after_break: EndEvent,
 }
 
 /// Error type for verification errors of `PomodoroOptions`.
@@ -63,6 +69,10 @@ impl Default for PomodoroOptions {
                 filepath_sound: PathBuf::new(),
             },
             end_event_additional_pomodoro: EndEvent::LockScreen,
+            interval_reminder_after_break: 5,
+            event_reminder_after_break: EndEvent::Sound {
+                filepath_sound: PathBuf::new(),
+            },
         }
     }
 }
@@ -101,7 +111,6 @@ impl PomodoroOptions {
     }
 }
 
-
 /// Error type for `PomodoroOptions` related errors.
 #[derive(Error, Debug)]
 pub(crate) enum PomodoroOptionsError {
@@ -117,36 +126,36 @@ pub(crate) enum PomodoroOptionsError {
 /// # Errors
 ///
 /// Returns a `PomodoroOptionsError` if the options file is not found or if there are any other errors during the process.
-pub fn read_options_from_json(filepath_json: Option<PathBuf>) -> Result<PomodoroOptions> {    
+pub fn read_options_from_json(filepath_json: Option<PathBuf>) -> Result<PomodoroOptions> {
     let file_path = match filepath_json {
-    Some(path) => path,
-    None => get_filepath_options_next_to_executable()?,
-};
-if !file_path.is_file() {
-    return Err(PomodoroOptionsError::OptionFileNotFound(file_path).into());
-}
-let mut file =
-    File::open(&file_path).with_context(|| format!("Failed to open file: {:?}", file_path))?;
-let mut contents = String::new();
-file.read_to_string(&mut contents)
-    .with_context(|| format!("Failed to read file: {:?}", file_path))?;
-
-let mut data: PomodoroOptions = serde_json::from_str(&contents)
-    .with_context(|| format!("Failed to parse JSON file: {:?}", file_path))?;
-match data.verify() {
-    Ok(_) => (),
-    Err(VerificationError::InvalidSoundFile) => {
-        println!("Sound file does not exist. Using default sound.");
-        if let EndEvent::Sound { filepath_sound } = &mut data.end_event_pomodoro {
-            *filepath_sound = PathBuf::new();
-        }
-        if let EndEvent::Sound { filepath_sound } = &mut data.end_event_additional_pomodoro {
-            *filepath_sound = PathBuf::new();
-        }
+        Some(path) => path,
+        None => get_filepath_options_next_to_executable()?,
+    };
+    if !file_path.is_file() {
+        return Err(PomodoroOptionsError::OptionFileNotFound(file_path).into());
     }
-    Err(e) => return Err(e.into()),
-}
-Ok(data)
+    let mut file =
+        File::open(&file_path).with_context(|| format!("Failed to open file: {:?}", file_path))?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)
+        .with_context(|| format!("Failed to read file: {:?}", file_path))?;
+
+    let mut data: PomodoroOptions = serde_json::from_str(&contents)
+        .with_context(|| format!("Failed to parse JSON file: {:?}", file_path))?;
+    match data.verify() {
+        Ok(_) => (),
+        Err(VerificationError::InvalidSoundFile) => {
+            println!("Sound file does not exist. Using default sound.");
+            if let EndEvent::Sound { filepath_sound } = &mut data.end_event_pomodoro {
+                *filepath_sound = PathBuf::new();
+            }
+            if let EndEvent::Sound { filepath_sound } = &mut data.end_event_additional_pomodoro {
+                *filepath_sound = PathBuf::new();
+            }
+        }
+        Err(e) => return Err(e.into()),
+    }
+    Ok(data)
 }
 
 /// Writes the default `PomodoroOptions` to a JSON file next to the executable.
@@ -160,7 +169,6 @@ pub(crate) fn write_default_options_to_json_next_to_executable() -> Result<()> {
     write_options_to_json(&file_path, &options)
 }
 
-
 /// Writes the `PomodoroOptions` to a JSON file.
 ///
 /// # Arguments
@@ -171,16 +179,13 @@ pub(crate) fn write_default_options_to_json_next_to_executable() -> Result<()> {
 /// # Errors
 ///
 /// Returns an error if there are any errors during the process of writing the options to the file.
-pub(crate) fn write_options_to_json(
-    file_path: &PathBuf,
-    options: &PomodoroOptions) -> Result<()> {
-        let file = File::create(&file_path)
+pub(crate) fn write_options_to_json(file_path: &PathBuf, options: &PomodoroOptions) -> Result<()> {
+    let file = File::create(&file_path)
         .with_context(|| format!("Failed to create file: {:?}", file_path))?;
     serde_json::to_writer_pretty(file, options)
         .with_context(|| format!("Failed to write to file: {:?}", file_path))?;
     Ok(())
 }
-
 
 /// Gets the path to the options file next to the executable.
 ///

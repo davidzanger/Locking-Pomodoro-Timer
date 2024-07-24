@@ -8,20 +8,21 @@ use crate::message_creator::{
     generate_print_message_before_pomodoro,
 };
 use crate::pomo_info::PomoInfo;
-use crate::pomodoro_options::{read_options_from_json, write_default_options_to_json_next_to_executable};
+use crate::pomodoro_options::{
+    read_options_from_json, write_default_options_to_json_next_to_executable,
+};
+use crate::pomodoro_options::{PomodoroOptions, PomodoroOptionsError};
 use crate::timer::Timer;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
-use crate::pomodoro_options::{PomodoroOptions, PomodoroOptionsError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 mod end_events;
+mod input_handler;
 mod message_creator;
 mod pomo_info;
 mod pomodoro_options;
 mod timer;
-mod input_handler;
-
 
 /// The main entry point of the program.
 fn main() {
@@ -66,18 +67,21 @@ fn main() {
 }
 
 /// Starts the Pomodoro timer.
-/// 
+///
 /// The function reads the Pomodoro options from the JSON file and starts the Pomodoro timer.
 /// The timer runs in a loop and can be repeated by pressing the enter key.
 /// The timer can be paused and resumed by pressing the 'p' and 'r' keys respectively.
 /// It can be stopped by pressing the 'q' key.
 /// Also it can be exited by pressing the 'ctrl+c' key combination.
-/// 
+///
 /// # Arguments
 /// * `options` - The Pomodoro options.
 fn start_pomodoro(options: &PomodoroOptions) {
     // Use the imported data
-    println!("Options: {}", serde_json::to_string_pretty(options).unwrap());
+    println!(
+        "Options: {}",
+        serde_json::to_string_pretty(options).unwrap()
+    );
 
     // Convert the duration and additional duration to `Duration` type
     let duration: Duration = Duration::from_secs((options.duration_pomodoro * 60) as u64);
@@ -95,17 +99,7 @@ fn start_pomodoro(options: &PomodoroOptions) {
         // Check if the timer should be repeated
         if counter != 0 && !options.auto_start_pomodoro {
             input.clear();
-            println!("Do you want to repeat the timer? (Press enter to repeat and 'q' to quit.)");
-            loop {
-                let pressed_key = receiver.recv().expect("Failed to receive input.");
-                if pressed_key == "q" {
-                    input = "q".to_string();
-                    break;
-                } else if pressed_key == "\n" {
-                    input = "".to_string();
-                    break;
-                }
-            }
+            input = ask_for_new_pomodoro(&receiver, &options);
         } else {
             input = "".to_string();
         }
@@ -122,11 +116,9 @@ fn start_pomodoro(options: &PomodoroOptions) {
                 let print_message =
                     generate_print_message_before_additional_break(&pomo_info, &options);
                 println!("{}", print_message);
-                time_with_progress_bar(
-                    additional_duration,
-                    &receiver,
-                    || start_end_event(&options.end_event_additional_pomodoro),
-                );
+                time_with_progress_bar(additional_duration, &receiver, || {
+                    start_end_event(&options.end_event_additional_pomodoro)
+                });
             }
 
             if !pomo_info.break_duration.is_zero() {
@@ -161,23 +153,62 @@ fn start_pomodoro(options: &PomodoroOptions) {
     }
 }
 
+fn ask_for_new_pomodoro(
+    receiver: &std::sync::mpsc::Receiver<String>,
+    options: &PomodoroOptions,
+) -> String {
+    let input;
+    println!("Do you want to repeat the timer? (Press enter to repeat and 'q' to quit.)");
+    let mut start_time = Instant::now();
+    loop {
+        let pressed_key = receiver.try_recv();
+        match pressed_key {
+            Ok(pressed_key) => {
+                if pressed_key == "q" {
+                    input = "q".to_string();
+                    break;
+                } else if pressed_key == "\n" {
+                    input = "".to_string();
+                    break;
+                }
+            }
+            Err(_) => {
+                let reminder_is_active = options.interval_reminder_after_break != 0;
+                if reminder_is_active {
+                    let elapsed_time = start_time.elapsed().as_secs();
+                    if elapsed_time >= options.interval_reminder_after_break as u64 * 60 {
+                        println!("Get back to work!");
+                        start_end_event(&options.event_reminder_after_break);
+                        start_time = Instant::now();
+                    }
+                }
+            }
+        }
+    }
+    input
+}
+
 /// Executes the timer with the specified duration.
-/// 
+///
 /// # Arguments
 /// * `duration` - The duration of the timer.
 /// * `receiver` - The receiver for input events.
 /// * `end_event` - The function to execute when the timer ends.
-fn execute_timer<F: Fn()>(duration: Duration, receiver: &std::sync::mpsc::Receiver<String>, end_event: F) {
+fn execute_timer<F: Fn()>(
+    duration: Duration,
+    receiver: &std::sync::mpsc::Receiver<String>,
+    end_event: F,
+) {
     time_with_progress_bar(duration, &receiver, end_event);
     println!("Times up!");
 }
 
 /// Executes the timer with the specified duration and displays a progress bar.
-/// 
+///
 /// The timer runs in a separate thread and increments the progress bar every second.
 /// It can be paused and resumed using the 'p' and 'r' keys respectively.
 /// Also it can be stopped using the 'q' key.
-/// 
+///
 /// # Arguments
 /// * `duration` - The duration of the timer.
 /// * `receiver` - The receiver for input events.
@@ -204,14 +235,16 @@ fn time_with_progress_bar<F: Fn()>(
             } else if input == "r" {
                 timer.resume();
                 println!("Timer resumed.");
-                println!("Press 'p' to pause, 'q' to quit current timer and 's' to skip 1 minute..");
+                println!(
+                    "Press 'p' to pause, 'q' to quit current timer and 's' to skip 1 minute.."
+                );
                 bar = bar.with_elapsed(timer.get_elapsed_time());
                 bar.reset_eta();
             } else if input == "q" {
                 // Return early to not execute the end event.
                 println!("Exiting the current timer.");
                 return;
-            }else if input == "s" {
+            } else if input == "s" {
                 println!("Skipping 1 minute.");
                 timer.skip(Duration::from_secs(60));
                 bar = bar.with_elapsed(timer.get_elapsed_time());
@@ -233,4 +266,3 @@ fn time_with_progress_bar<F: Fn()>(
     bar.finish();
     end_event();
 }
-

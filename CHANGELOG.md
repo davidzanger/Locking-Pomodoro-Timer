@@ -18,6 +18,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Security
 
+## 1.2.0 - 2024-07-24
+
+### Added
+
+- Add option `interval_reminder_after_break` to specify the interval in minutes after which a reminder should be triggered after a break ends. This shall remind the user to either go back to work or to start a new Pomodoro session if already working. This option is only relevant if `auto_start_pomodoro` is `false`. The default value is `5`.
+- Add option `event_reminder_after_break` to specify the event to be executed after the reminder interval after a break ends. The default value is `EndEvent::Sound`, using the default sound.
+
 ## 1.1.0 - 2024-05-22
 
 ### Added
