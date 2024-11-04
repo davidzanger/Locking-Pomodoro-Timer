@@ -79,6 +79,7 @@ impl Timer {
 
     /// Skip specified duration.
     pub fn skip(&self, duration: Duration) {
+        log::trace!("Skip duration: {:?}", duration);
         let elapsed_time = self.elapsed_time.load(Ordering::Relaxed);
         let new_elapsed_time = elapsed_time + duration.as_secs() as u32;
         if new_elapsed_time >= self.duration.as_secs() as u32 {
@@ -88,6 +89,7 @@ impl Timer {
         } else {
             self.elapsed_time.store(new_elapsed_time, Ordering::Relaxed);
         }
+        log::trace!("Elapsed time after skip: {:?}", self.elapsed_time.load(Ordering::Relaxed));
     }
 
     /// Checks if the timer is currently paused.

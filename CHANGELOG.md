@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Set the thread sleep to 10 ms to fix lagging issues.
+
 ### Security
 
 ## 1.2.0 - 2024-07-24

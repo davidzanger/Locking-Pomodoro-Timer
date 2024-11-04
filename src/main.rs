@@ -15,6 +15,7 @@ use crate::pomodoro_options::{PomodoroOptions, PomodoroOptionsError};
 use crate::timer::Timer;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
+use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 mod end_events;
@@ -27,8 +28,10 @@ mod timer;
 /// The main entry point of the program.
 fn main() {
     // Initialize the logger
-    env_logger::init();
-
+    let logging_config_file = PathBuf::from("pomodoro_logging.yaml");
+    if logging_config_file.is_file() {
+        log4rs::init_file(logging_config_file, Default::default()).unwrap();
+    }
     // Read the JSON file
     let data = read_options_from_json(None);
     let json_data = match data {
@@ -63,7 +66,10 @@ fn main() {
     };
 
     // Start the Pomodoro timer
-    start_pomodoro(&json_data);
+    start_pomodoro(&json_data)
+    // if let Err(e) = std::panic::catch_unwind(|| start_pomodoro(&json_data)) {
+        // log::error!("An error occurred: {:#?}", e);
+    // }
 }
 
 /// Starts the Pomodoro timer.
@@ -223,7 +229,8 @@ fn time_with_progress_bar<F: Fn()>(
     bar.set_style(
         ProgressStyle::with_template("[{elapsed}/{eta}] {wide_bar:.cyan/blue} ").unwrap(),
     );
-    let delta: u64 = 1;
+    let delta: u64 = 100;
+    let mut cumulative_delta: u64 = 0;
     timer.start();
     println!("Press 'p' to pause, 'q' to quit current timer and 's' to skip 1 minute.");
     while timer.get_elapsed_time() < duration {
@@ -236,7 +243,7 @@ fn time_with_progress_bar<F: Fn()>(
                 timer.resume();
                 println!("Timer resumed.");
                 println!(
-                    "Press 'p' to pause, 'q' to quit current timer and 's' to skip 1 minute.."
+                    "Press 'p' to pause, 'q' to quit current timer and 's' to skip 1 minute."
                 );
                 bar = bar.with_elapsed(timer.get_elapsed_time());
                 bar.reset_eta();
@@ -246,10 +253,13 @@ fn time_with_progress_bar<F: Fn()>(
                 return;
             } else if input == "s" {
                 println!("Skipping 1 minute.");
+                log::trace!("Skipping 1 minute.");
                 timer.skip(Duration::from_secs(60));
+                log::trace!("Skipping 1 minute. Updating progress bar.");
                 bar = bar.with_elapsed(timer.get_elapsed_time());
                 bar.set_position(timer.get_elapsed_time().as_secs());
                 bar.reset_eta();
+                log::trace!("Progress bar updated.");
             } else if input == "ctrl+c" {
                 println!("Exiting the program.");
                 std::process::exit(0);
@@ -258,9 +268,13 @@ fn time_with_progress_bar<F: Fn()>(
             }
             debug!("Elapsed time: {:?}", timer.get_elapsed_time());
         }
-        thread::sleep(Duration::from_secs(delta));
+        thread::sleep(Duration::from_millis(delta));
         if !timer.is_paused() {
-            bar.inc(delta)
+            cumulative_delta += delta;
+            if cumulative_delta >= 1000 {
+                cumulative_delta -= 1000;
+                bar.inc(1);
+            }
         }
     }
     bar.finish();
