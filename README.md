@@ -147,7 +147,17 @@ The default settings are as follows:
         }
     },
     // The end event to be executed after the additional Pomodoro after a Pomodoro session ends.
-    "endEventAdditionalPomodoro": "lockScreen"
+    "endEventAdditionalPomodoro": "lockScreen",
+    // After a break ends, the interval in minutes after which a reminder should be triggered.
+    // This shall remind the user to either go back to work or to start a new Pomodoro session if already working.
+    // This option is only relevant if `auto_start_pomodoro` is `false`.
+    "intervalReminderAfterBreak": 5,
+    // The event to be executed after the reminder interval after a break ends.
+    "eventReminderAfterBreak": {
+        "sound": {
+            "filepathSound": ""
+        }
+    }
 }
 ```
 
@@ -198,6 +208,15 @@ Distributed under the GPL-3.0 License. See `LICENSE` for more information.
 ## Contact
 
 Project Link: [https://github.com/davidzanger/Locking-Pomodoro-Timer](https://github.com/davidzanger/Locking-Pomodoro-Timer)
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+## 🤝 Support
+
+Give a ⭐️ or buy me a `coffee` tea if you like this project!
+
+<a href="https://www.buymeacoffee.com/davidzanger" target="_blank" rel="noopener"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" height="40" width="145" alt="Buy Me A Coffee"></a>
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
