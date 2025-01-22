@@ -15,6 +15,7 @@ use crate::pomodoro_options::{PomodoroOptions, PomodoroOptionsError};
 use crate::timer::Timer;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
+use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -233,40 +234,11 @@ fn time_with_progress_bar<F: Fn()>(
     let mut cumulative_delta: u64 = 0;
     timer.start();
     println!("Press 'p' to pause, 'q' to quit current timer and 's' to skip 1 minute.");
+    let mut control_flow;
     while timer.get_elapsed_time() < duration {
-        if let Ok(input) = receiver.try_recv() {
-            if input == "p" {
-                timer.pause();
-                println!("Timer paused.");
-                println!("Press 'r' to resume, 'q' to quit current timer.");
-            } else if input == "r" {
-                timer.resume();
-                println!("Timer resumed.");
-                println!(
-                    "Press 'p' to pause, 'q' to quit current timer and 's' to skip 1 minute."
-                );
-                bar = bar.with_elapsed(timer.get_elapsed_time());
-                bar.reset_eta();
-            } else if input == "q" {
-                // Return early to not execute the end event.
-                println!("Exiting the current timer.");
-                return;
-            } else if input == "s" {
-                println!("Skipping 1 minute.");
-                log::trace!("Skipping 1 minute.");
-                timer.skip(Duration::from_secs(60));
-                log::trace!("Skipping 1 minute. Updating progress bar.");
-                bar = bar.with_elapsed(timer.get_elapsed_time());
-                bar.set_position(timer.get_elapsed_time().as_secs());
-                bar.reset_eta();
-                log::trace!("Progress bar updated.");
-            } else if input == "ctrl+c" {
-                println!("Exiting the program.");
-                std::process::exit(0);
-            } else {
-                debug!("Invalid input: {}", input);
-            }
-            debug!("Elapsed time: {:?}", timer.get_elapsed_time());
+        (bar,control_flow) = handle_user_input(receiver, &timer, bar);
+        if control_flow == ControlFlow::Break(()) {
+            return;
         }
         thread::sleep(Duration::from_millis(delta));
         if !timer.is_paused() {
@@ -279,4 +251,43 @@ fn time_with_progress_bar<F: Fn()>(
     }
     bar.finish();
     end_event();
+}
+
+fn handle_user_input(receiver: &std::sync::mpsc::Receiver<String>, timer: &Timer, mut bar: ProgressBar) -> (ProgressBar,  ControlFlow<()>)
+ {
+    if let Ok(input) = receiver.try_recv() {
+        if input == "p" {
+            timer.pause();
+            println!("Timer paused.");
+            println!("Press 'r' to resume, 'q' to quit current timer.");
+        } else if input == "r" {
+            timer.resume();
+            println!("Timer resumed.");
+            println!(
+                "Press 'p' to pause, 'q' to quit current timer and 's' to skip 1 minute."
+            );
+            bar = bar.with_elapsed(timer.get_elapsed_time());
+            bar.reset_eta();
+        } else if input == "q" {
+            // Return early to not execute the end event.
+            println!("Exiting the current timer.");
+            return (bar, ControlFlow::Break(()));
+        } else if input == "s" {
+            println!("Skipping 1 minute.");
+            log::trace!("Skipping 1 minute.");
+            timer.skip(Duration::from_secs(60));
+            log::trace!("Skipping 1 minute. Updating progress bar.");
+            bar = bar.with_elapsed(timer.get_elapsed_time());
+            bar.set_position(timer.get_elapsed_time().as_secs());
+            bar.reset_eta();
+            log::trace!("Progress bar updated.");
+        } else if input == "ctrl+c" {
+            println!("Exiting the program.");
+            std::process::exit(0);
+        } else {
+            debug!("Invalid input: {}", input);
+        }
+        log::debug!("Elapsed time: {:?}", timer.get_elapsed_time());
+    }
+    (bar, ControlFlow::Continue(()))
 }
