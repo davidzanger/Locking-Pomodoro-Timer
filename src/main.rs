@@ -25,8 +25,14 @@ mod message_creator;
 mod pomo_info;
 mod pomodoro_options;
 mod timer;
-
 /// The main entry point of the program.
+///
+/// This function initializes the logger, reads the Pomodoro options from a JSON file,
+/// and starts the Pomodoro timer. If the options file is not found, it writes default
+/// options to a new JSON file and informs the user.
+///
+/// # Panics
+/// This function will panic if it fails to write default options to the JSON file.
 fn main() {
     // Initialize the logger
     let logging_config_file = PathBuf::from("pomodoro_logging.yaml");
@@ -159,7 +165,18 @@ fn start_pomodoro(options: &PomodoroOptions) {
         counter += 1;
     }
 }
-
+/// Asks the user if they want to repeat the Pomodoro timer.
+///
+/// This function prompts the user to press enter to repeat the timer or 'q' to quit.
+/// It also provides interval reminders to get back to work if the user does not respond
+/// within a specified time.
+///
+/// # Arguments
+/// * `receiver` - The receiver for input events.
+/// * `options` - The Pomodoro options.
+///
+/// # Returns
+/// A string indicating the user's choice.
 fn ask_for_new_pomodoro(
     receiver: &std::sync::mpsc::Receiver<String>,
     options: &PomodoroOptions,
@@ -196,6 +213,8 @@ fn ask_for_new_pomodoro(
 }
 
 /// Executes the timer with the specified duration.
+///
+/// This function runs the timer for the given duration and executes the end event when the timer ends.
 ///
 /// # Arguments
 /// * `duration` - The duration of the timer.
@@ -253,6 +272,18 @@ fn time_with_progress_bar<F: Fn()>(
     end_event();
 }
 
+/// Handles user input during the timer execution.
+///
+/// This function processes user input to pause, resume, quit, or skip time in the timer.
+/// It updates the progress bar accordingly.
+///
+/// # Arguments
+/// * `receiver` - The receiver for input events.
+/// * `timer` - The timer instance.
+/// * `bar` - The progress bar instance.
+///
+/// # Returns
+/// A tuple containing the updated progress bar and a control flow indicating whether to continue or break.
 fn handle_user_input(receiver: &std::sync::mpsc::Receiver<String>, timer: &Timer, mut bar: ProgressBar) -> (ProgressBar,  ControlFlow<()>)
  {
     if let Ok(input) = receiver.try_recv() {
