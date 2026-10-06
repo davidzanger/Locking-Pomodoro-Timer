@@ -161,6 +161,23 @@ The default settings are as follows:
 }
 ```
 
+### Service Mode for a GUI
+
+The executable can run without terminal controls for use by a desktop GUI. Start it with `--service`; the service reads one JSON command per line from stdin and writes one JSON event per line to stdout. Diagnostic output is written to stderr. The existing CLI mode is unchanged.
+
+Every request includes protocol version `1` and a command:
+
+```json
+{"protocolVersion":1,"command":{"type":"start"}}
+{"protocolVersion":1,"command":{"type":"pause"}}
+{"protocolVersion":1,"command":{"type":"resume"}}
+{"protocolVersion":1,"command":{"type":"skip","seconds":60}}
+{"protocolVersion":1,"command":{"type":"cancel"}}
+{"protocolVersion":1,"command":{"type":"quit"}}
+```
+
+The service responds with JSON events carrying the same `protocolVersion`. It emits `ready`, an initial `state`, then state updates, `phaseCompleted`, `awaitingStart`, or `error` events as appropriate. State includes `status`, `phase`, `elapsedSeconds`, `durationSeconds`, and `completedPomodoros`. Phases are `pomodoro`, `additionalPomodoro`, `shortBreak`, and `longBreak`. `cancel` resets the current sequence; `quit` ends the process. The service uses the same `pomodoro_options.json` file as the CLI, located next to the executable.
+
 For the `endEventPomodoro` and `endEventAdditionalPomodoro` fields, the following options are available:
 
 - `sound`: Play a sound file. The path to the sound file must be provided in the `filepathSound` field. If the path is empty, the default sound will be played.
@@ -173,7 +190,7 @@ _For more details, please refer to the [Documentation](https://docs.rs/crate/loc
 <!-- ROADMAP -->
 ## Roadmap
 
-- [ ] Create a GUI for the timer.
+- [x] Create a Flutter desktop GUI for the timer (maintained in a separate repository).
 
 See the [open issues](https://github.com/davidzanger/Locking-Pomodoro-Timer/issues) for a full list of proposed features (and known issues).
 

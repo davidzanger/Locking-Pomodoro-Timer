@@ -11,6 +11,7 @@ mod input_handler;
 mod message_creator;
 mod pomo_info;
 mod pomodoro_options;
+mod service;
 mod timer;
 mod cli_utilities;
 mod end_events;
@@ -23,6 +24,13 @@ mod end_events;
 /// # Panics
 /// This function will panic if it fails to write default options to the JSON file.
 fn main() {
+    if std::env::args().any(|argument| argument == "--service") {
+        if let Err(error) = service::run() {
+            eprintln!("Service failed: {:#}", error);
+        }
+        return;
+    }
+
     // Initialize the logger
     let logging_config_file = PathBuf::from("pomodoro_logging.yaml");
     if logging_config_file.is_file() {

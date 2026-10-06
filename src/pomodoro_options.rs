@@ -127,6 +127,19 @@ pub(crate) enum PomodoroOptionsError {
 ///
 /// Returns a `PomodoroOptionsError` if the options file is not found or if there are any other errors during the process.
 pub fn read_options_from_json(filepath_json: Option<PathBuf>) -> Result<PomodoroOptions> {
+    read_options_from_json_inner(filepath_json, false)
+}
+
+pub(crate) fn read_options_from_json_silent(
+    filepath_json: Option<PathBuf>,
+) -> Result<PomodoroOptions> {
+    read_options_from_json_inner(filepath_json, true)
+}
+
+fn read_options_from_json_inner(
+    filepath_json: Option<PathBuf>,
+    silent_warnings: bool,
+) -> Result<PomodoroOptions> {
     let file_path = match filepath_json {
         Some(path) => path,
         None => get_filepath_options_next_to_executable()?,
@@ -145,7 +158,11 @@ pub fn read_options_from_json(filepath_json: Option<PathBuf>) -> Result<Pomodoro
     match data.verify() {
         Ok(_) => (),
         Err(VerificationError::InvalidSoundFile) => {
-            println!("Sound file does not exist. Using default sound.");
+            if silent_warnings {
+                log::warn!("Sound file does not exist. Using default sound.");
+            } else {
+                println!("Sound file does not exist. Using default sound.");
+            }
             if let EndEvent::Sound { filepath_sound } = &mut data.end_event_pomodoro {
                 *filepath_sound = PathBuf::new();
             }

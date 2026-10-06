@@ -1,8 +1,8 @@
 Quick:
     ☐ Upload to crates.io.
         ☐ Read https://rust-cli.github.io/book/tutorial/packaging.html
-    ☐ Add API.
-    ☐ Add flutter GUI.
+    ✔ Add JSONL service API.
+    ✔ Add Flutter desktop GUI.
 // Copy the images to the output when generating documentation
     // From: https://stackoverflow.com/questions/67691701/how-to-use-a-local-file-as-crate-logo-when-generating-rustdoc
 Archive:
