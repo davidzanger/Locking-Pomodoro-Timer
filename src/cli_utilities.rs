@@ -30,6 +30,11 @@ pub(crate) fn start_pomodoro(options: &PomodoroOptions) {
         serde_json::to_string_pretty(options).unwrap()
     );
 
+    let receiver = input_handler::start_input_stream();
+    run_pomodoro(options, &receiver);
+}
+
+fn run_pomodoro(options: &PomodoroOptions, receiver: &std::sync::mpsc::Receiver<String>) {
     // Convert the duration and additional duration to `Duration` type
     let duration: Duration = Duration::from_secs((options.duration_pomodoro * 60) as u64);
     let additional_duration: Duration =
@@ -41,12 +46,11 @@ pub(crate) fn start_pomodoro(options: &PomodoroOptions) {
         start_end_event(&options.end_event_pomodoro);
     };
     debug!("Starting input stream.");
-    let receiver = input_handler::start_input_stream();
     loop {
         // Check if the timer should be repeated
         if counter != 0 && !options.auto_start_pomodoro {
             input.clear();
-            input = ask_for_new_pomodoro(&receiver, &options);
+            input = ask_for_new_pomodoro(receiver, options);
         } else {
             input = "".to_string();
         }
@@ -57,13 +61,13 @@ pub(crate) fn start_pomodoro(options: &PomodoroOptions) {
             let print_message = generate_print_message_before_pomodoro(&pomo_info, &options);
             println!("{}", print_message);
 
-            execute_timer(duration, &receiver, end_event);
+            execute_timer(duration, receiver, end_event);
 
             if options.additional_duration != 0 {
                 let print_message =
                     generate_print_message_before_additional_break(&pomo_info, &options);
                 println!("{}", print_message);
-                time_with_progress_bar(additional_duration, &receiver, || {
+                time_with_progress_bar(additional_duration, receiver, || {
                     start_end_event(&options.end_event_additional_pomodoro)
                 });
             }
@@ -91,7 +95,7 @@ pub(crate) fn start_pomodoro(options: &PomodoroOptions) {
                 }
                 let print_message = generate_print_message_before_break(&pomo_info, &options);
                 println!("{}", print_message);
-                execute_timer(pomo_info.break_duration, &receiver, end_event);
+                execute_timer(pomo_info.break_duration, receiver, end_event);
             }
         } else {
             break;
@@ -255,4 +259,147 @@ fn handle_user_input(receiver: &std::sync::mpsc::Receiver<String>, timer: &Timer
         log::debug!("Elapsed time: {:?}", timer.get_elapsed_time());
     }
     (bar, ControlFlow::Continue(()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ask_for_new_pomodoro, execute_timer, handle_user_input, run_pomodoro,
+        time_with_progress_bar,
+    };
+    use crate::pomodoro_options::PomodoroOptions;
+    use crate::timer::Timer;
+    use indicatif::ProgressBar;
+    use std::ops::ControlFlow;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[test]
+    fn repeat_prompt_returns_quit_or_repeat_choice() {
+        for (key, expected) in [("q", "q"), ("\n", "")] {
+            let (sender, receiver) = mpsc::channel();
+            sender.send(key.to_string()).unwrap();
+            assert_eq!(
+                ask_for_new_pomodoro(&receiver, &PomodoroOptions::default()),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn repeat_prompt_ignores_other_keys_before_quit() {
+        let (sender, receiver) = mpsc::channel();
+        sender.send("x".to_string()).unwrap();
+        sender.send("q".to_string()).unwrap();
+
+        assert_eq!(
+            ask_for_new_pomodoro(&receiver, &PomodoroOptions::default()),
+            "q"
+        );
+    }
+
+    #[test]
+    fn user_input_pauses_resumes_skips_and_quits_timer() {
+        let timer = Timer::new(Duration::from_secs(600));
+
+        let (sender, receiver) = mpsc::channel();
+        sender.send("p".to_string()).unwrap();
+        let (_, flow) = handle_user_input(&receiver, &timer, ProgressBar::new(600));
+        assert_eq!(flow, ControlFlow::Continue(()));
+        assert!(timer.is_paused());
+
+        let (sender, receiver) = mpsc::channel();
+        sender.send("r".to_string()).unwrap();
+        let (_, flow) = handle_user_input(&receiver, &timer, ProgressBar::new(600));
+        assert_eq!(flow, ControlFlow::Continue(()));
+        assert!(!timer.is_paused());
+
+        let (sender, receiver) = mpsc::channel();
+        sender.send("s".to_string()).unwrap();
+        let (_, flow) = handle_user_input(&receiver, &timer, ProgressBar::new(600));
+        assert_eq!(flow, ControlFlow::Continue(()));
+        assert_eq!(timer.get_elapsed_time(), Duration::from_secs(60));
+
+        let (sender, receiver) = mpsc::channel();
+        sender.send("unknown".to_string()).unwrap();
+        let (_, flow) = handle_user_input(&receiver, &timer, ProgressBar::new(600));
+        assert_eq!(flow, ControlFlow::Continue(()));
+
+        let (sender, receiver) = mpsc::channel();
+        sender.send("q".to_string()).unwrap();
+        let (_, flow) = handle_user_input(&receiver, &timer, ProgressBar::new(600));
+        assert_eq!(flow, ControlFlow::Break(()));
+    }
+
+    #[test]
+    fn zero_length_timer_runs_end_event_once() {
+        let (sender, receiver) = mpsc::channel();
+        drop(sender);
+        let called = AtomicBool::new(false);
+
+        execute_timer(Duration::ZERO, &receiver, || {
+            called.store(true, Ordering::Relaxed);
+        });
+
+        assert!(called.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn quitting_progress_timer_does_not_run_end_event() {
+        let (sender, receiver) = mpsc::channel();
+        sender.send("q".to_string()).unwrap();
+        let called = AtomicBool::new(false);
+
+        time_with_progress_bar(Duration::from_secs(600), &receiver, || {
+            called.store(true, Ordering::Relaxed);
+        });
+
+        assert!(!called.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn skipping_progress_timer_runs_end_event_when_time_is_complete() {
+        let (sender, receiver) = mpsc::channel();
+        sender.send("s".to_string()).unwrap();
+        let called = AtomicBool::new(false);
+
+        time_with_progress_bar(Duration::from_secs(60), &receiver, || {
+            called.store(true, Ordering::Relaxed);
+        });
+
+        assert!(called.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn pomodoro_loop_handles_additional_session_break_and_quit() {
+        let mut options = PomodoroOptions::default();
+        options.duration_pomodoro = 1;
+        options.additional_duration = 1;
+        options.duration_short_break = 1;
+        options.auto_start_break = false;
+        options.auto_start_pomodoro = false;
+
+        let (sender, receiver) = mpsc::channel();
+        for input in ["q", "q", "\n", "q", "q"] {
+            sender.send(input.to_string()).unwrap();
+        }
+
+        run_pomodoro(&options, &receiver);
+    }
+
+    #[test]
+    fn pomodoro_loop_skips_break_when_break_duration_is_zero() {
+        let mut options = PomodoroOptions::default();
+        options.duration_pomodoro = 1;
+        options.additional_duration = 0;
+        options.duration_short_break = 0;
+        options.auto_start_pomodoro = false;
+
+        let (sender, receiver) = mpsc::channel();
+        sender.send("q".to_string()).unwrap();
+        sender.send("q".to_string()).unwrap();
+
+        run_pomodoro(&options, &receiver);
+    }
 }

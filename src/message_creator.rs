@@ -172,3 +172,71 @@ pub(crate) fn generate_print_message_before_break(
     let print_message = message_data.generate_print_message();
     print_message
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        generate_print_message_before_additional_break,
+        generate_print_message_before_break, generate_print_message_before_pomodoro,
+    };
+    use crate::pomo_info::PomoInfo;
+    use crate::pomodoro_options::PomodoroOptions;
+    use std::time::Duration;
+
+    fn info(is_long_break_coming: bool, break_minutes: u64, until_long_break: i32) -> PomoInfo {
+        PomoInfo {
+            pomodoros_till_long_break: until_long_break,
+            is_long_break_coming,
+            break_duration: Duration::from_secs(break_minutes * 60),
+        }
+    }
+
+    #[test]
+    fn pomodoro_message_announces_additional_session_when_configured() {
+        let options = PomodoroOptions::default();
+        let message = generate_print_message_before_pomodoro(&info(false, 5, 4), &options);
+
+        assert!(message.contains("Current: Pomodoro (25 min)"));
+        assert!(message.contains("Upcoming: Additional Pomodoro (5 min)"));
+        assert!(message.contains("Pomodoros till long break: 4 (135 min)"));
+    }
+
+    #[test]
+    fn pomodoro_message_announces_short_long_or_next_pomodoro() {
+        let mut options = PomodoroOptions::default();
+        options.additional_duration = 0;
+
+        assert!(generate_print_message_before_pomodoro(&info(false, 5, 2), &options)
+            .contains("Upcoming: Short break (5 min)"));
+        assert!(generate_print_message_before_pomodoro(&info(true, 15, 1), &options)
+            .contains("Upcoming: Long break (15 min)"));
+        assert!(generate_print_message_before_pomodoro(&info(false, 0, 1), &options)
+            .contains("Upcoming: Pomodoro (25 min)"));
+    }
+
+    #[test]
+    fn additional_session_message_announces_upcoming_break_or_pomodoro() {
+        let options = PomodoroOptions::default();
+
+        assert!(generate_print_message_before_additional_break(&info(true, 15, 1), &options)
+            .contains("Upcoming: Long break (15 min)"));
+        assert!(generate_print_message_before_additional_break(&info(false, 5, 2), &options)
+            .contains("Upcoming: Short break (5 min)"));
+        assert!(generate_print_message_before_additional_break(&info(false, 0, 1), &options)
+            .contains("Upcoming: Pomodoro (25 min)"));
+    }
+
+    #[test]
+    fn break_message_announces_next_pomodoro_and_remaining_interval() {
+        let options = PomodoroOptions::default();
+
+        let short = generate_print_message_before_break(&info(false, 5, 3), &options);
+        assert!(short.contains("Current: Short break (5 min)"));
+        assert!(short.contains("Upcoming: Pomodoro (25 min)"));
+        assert!(short.contains("Pomodoros till long break: 2 (70 min)"));
+
+        let long = generate_print_message_before_break(&info(true, 15, 1), &options);
+        assert!(long.contains("Current: Long break (15 min)"));
+        assert!(long.contains("Pomodoros till long break: 0 (0 min)"));
+    }
+}

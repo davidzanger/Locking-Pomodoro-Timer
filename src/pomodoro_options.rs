@@ -245,3 +245,217 @@ fn test_read_options_from_json() {
     assert_eq!(options.duration_short_break, 5);
     assert_eq!(options.duration_long_break, 15);
 }
+
+#[cfg(test)]
+mod additional_tests {
+    use super::{
+        read_options_from_json_inner, write_options_to_json, PomodoroOptions,
+        VerificationError,
+    };
+    use crate::end_events::EndEvent;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NEXT_FILE_ID: AtomicUsize = AtomicUsize::new(0);
+
+    fn temporary_file(extension: &str) -> PathBuf {
+        let id = NEXT_FILE_ID.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "pomodoro-options-{}-{}.{}",
+            std::process::id(),
+            id,
+            extension
+        ))
+    }
+
+    #[test]
+    fn default_options_are_valid_and_use_expected_values() {
+        let options = PomodoroOptions::default();
+
+        assert_eq!(options.duration_pomodoro, 25);
+        assert_eq!(options.additional_duration, 5);
+        assert_eq!(options.interval_long_break, 4);
+        assert!(options.verify().is_ok());
+    }
+
+    #[test]
+    fn verification_rejects_each_negative_or_zero_duration() {
+        let mut options = PomodoroOptions::default();
+        options.duration_pomodoro = 0;
+        assert!(matches!(options.verify(), Err(VerificationError::InvalidDuration)));
+
+        options = PomodoroOptions::default();
+        options.additional_duration = -1;
+        assert!(matches!(
+            options.verify(),
+            Err(VerificationError::InvalidAdditionalDuration)
+        ));
+
+        options = PomodoroOptions::default();
+        options.duration_short_break = -1;
+        assert!(matches!(
+            options.verify(),
+            Err(VerificationError::InvalidShortBreakDuration)
+        ));
+
+        options = PomodoroOptions::default();
+        options.duration_long_break = -1;
+        assert!(matches!(
+            options.verify(),
+            Err(VerificationError::InvalidLongBreakDuration)
+        ));
+    }
+
+    #[test]
+    fn verification_rejects_missing_sound_file() {
+        let mut options = PomodoroOptions::default();
+        options.end_event_pomodoro = EndEvent::Sound {
+            filepath_sound: PathBuf::from("missing-pomodoro-sound.wav"),
+        };
+
+        assert!(matches!(
+            options.verify(),
+            Err(VerificationError::InvalidSoundFile)
+        ));
+    }
+
+    #[test]
+    fn verification_checks_additional_session_sound_file_too() {
+        let mut options = PomodoroOptions::default();
+        options.end_event_additional_pomodoro = EndEvent::Sound {
+            filepath_sound: PathBuf::from("missing-additional-sound.wav"),
+        };
+
+        assert!(matches!(
+            options.verify(),
+            Err(VerificationError::InvalidSoundFile)
+        ));
+    }
+
+    #[test]
+    fn verification_accepts_existing_sound_files() {
+        let path = temporary_file("wav");
+        std::fs::write(&path, []).unwrap();
+        let options = PomodoroOptions {
+            end_event_pomodoro: EndEvent::Sound {
+                filepath_sound: path.clone(),
+            },
+            end_event_additional_pomodoro: EndEvent::Sound {
+                filepath_sound: path.clone(),
+            },
+            ..PomodoroOptions::default()
+        };
+
+        assert!(options.verify().is_ok());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn reading_missing_file_returns_typed_error() {
+        let path = temporary_file("json");
+        let error = read_options_from_json_inner(Some(path.clone()), true).unwrap_err();
+
+        assert!(matches!(
+            error.downcast_ref::<super::PomodoroOptionsError>(),
+            Some(super::PomodoroOptionsError::OptionFileNotFound(missing)) if missing == &path
+        ));
+    }
+
+    #[test]
+    fn reading_malformed_json_returns_contextual_error() {
+        let path = temporary_file("json");
+        std::fs::write(&path, "{").unwrap();
+
+        let error = read_options_from_json_inner(Some(path.clone()), true).unwrap_err();
+
+        assert!(format!("{:#}", error).contains("Failed to parse JSON file"));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn reading_non_utf8_file_returns_read_context() {
+        let path = temporary_file("json");
+        std::fs::write(&path, [0xff, 0xfe]).unwrap();
+
+        let error = read_options_from_json_inner(Some(path.clone()), true).unwrap_err();
+
+        assert!(format!("{:#}", error).contains("Failed to read file"));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn writing_to_missing_parent_returns_create_context() {
+        let path = temporary_file("missing/options.json");
+        let error = write_options_to_json(&path, &PomodoroOptions::default()).unwrap_err();
+
+        assert!(format!("{:#}", error).contains("Failed to create file"));
+    }
+
+    #[test]
+    fn options_path_is_next_to_current_executable() {
+        let path = super::get_filepath_options_next_to_executable().unwrap();
+        let executable_parent = std::env::current_exe().unwrap().parent().unwrap().to_owned();
+
+        assert_eq!(path.file_name().unwrap(), "pomodoro_options.json");
+        assert_eq!(path.parent().unwrap(), executable_parent);
+    }
+
+    #[test]
+    fn writing_then_reading_options_preserves_values() {
+        let path = temporary_file("json");
+        let mut options = PomodoroOptions::default();
+        options.duration_pomodoro = 42;
+        write_options_to_json(&path, &options).unwrap();
+
+        let loaded = read_options_from_json_inner(Some(path.clone()), true).unwrap();
+
+        assert_eq!(loaded.duration_pomodoro, 42);
+        assert_eq!(loaded.duration_short_break, options.duration_short_break);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn invalid_sound_paths_are_replaced_with_default_paths() {
+        let path = temporary_file("json");
+        let mut options = PomodoroOptions::default();
+        options.end_event_pomodoro = EndEvent::Sound {
+            filepath_sound: PathBuf::from("missing-pomodoro-sound.wav"),
+        };
+        options.end_event_additional_pomodoro = EndEvent::Sound {
+            filepath_sound: PathBuf::from("missing-additional-sound.wav"),
+        };
+        std::fs::write(&path, serde_json::to_vec(&options).unwrap()).unwrap();
+
+        let loaded = read_options_from_json_inner(Some(path.clone()), true).unwrap();
+
+        assert!(matches!(
+            loaded.end_event_pomodoro,
+            EndEvent::Sound { filepath_sound } if filepath_sound.as_os_str().is_empty()
+        ));
+        assert!(matches!(
+            loaded.end_event_additional_pomodoro,
+            EndEvent::Sound { filepath_sound } if filepath_sound.as_os_str().is_empty()
+        ));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn non_silent_read_warns_and_recovers_from_invalid_sound_paths() {
+        let path = temporary_file("json");
+        let options = PomodoroOptions {
+            end_event_pomodoro: EndEvent::Sound {
+                filepath_sound: PathBuf::from("missing-warning-sound.wav"),
+            },
+            ..PomodoroOptions::default()
+        };
+        std::fs::write(&path, serde_json::to_vec(&options).unwrap()).unwrap();
+
+        let loaded = read_options_from_json_inner(Some(path.clone()), false).unwrap();
+
+        assert!(matches!(
+            loaded.end_event_pomodoro,
+            EndEvent::Sound { filepath_sound } if filepath_sound.as_os_str().is_empty()
+        ));
+        std::fs::remove_file(path).unwrap();
+    }
+}

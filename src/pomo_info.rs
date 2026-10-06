@@ -41,3 +41,36 @@ impl PomoInfo {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::PomoInfo;
+    use crate::pomodoro_options::PomodoroOptions;
+    use std::time::Duration;
+
+    #[test]
+    fn calculates_short_break_before_long_break_interval() {
+        let info = PomoInfo::from_options(&PomodoroOptions::default(), 0);
+
+        assert_eq!(info.pomodoros_till_long_break, 4);
+        assert!(!info.is_long_break_coming);
+        assert_eq!(info.break_duration, Duration::from_secs(5 * 60));
+    }
+
+    #[test]
+    fn selects_long_break_at_end_of_interval() {
+        let info = PomoInfo::from_options(&PomodoroOptions::default(), 3);
+
+        assert_eq!(info.pomodoros_till_long_break, 1);
+        assert!(info.is_long_break_coming);
+        assert_eq!(info.break_duration, Duration::from_secs(15 * 60));
+    }
+
+    #[test]
+    fn wraps_counter_after_long_break_interval() {
+        let info = PomoInfo::from_options(&PomodoroOptions::default(), 4);
+
+        assert_eq!(info.pomodoros_till_long_break, 4);
+        assert!(!info.is_long_break_coming);
+    }
+}

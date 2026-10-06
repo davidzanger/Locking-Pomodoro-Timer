@@ -117,3 +117,52 @@ impl Drop for Timer {
         trace!("Timer dropped.");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Timer;
+    use std::time::Duration;
+
+    #[test]
+    fn pause_and_resume_update_timer_state() {
+        let timer = Timer::new(Duration::from_secs(10));
+
+        assert!(!timer.is_paused());
+        timer.pause();
+        assert!(timer.is_paused());
+        timer.resume();
+        assert!(!timer.is_paused());
+    }
+
+    #[test]
+    fn skip_advances_elapsed_time_without_exceeding_duration() {
+        let timer = Timer::new(Duration::from_secs(100));
+
+        timer.skip(Duration::from_secs(30));
+        assert_eq!(timer.get_elapsed_time(), Duration::from_secs(30));
+
+        timer.skip(Duration::from_secs(100));
+        assert_eq!(timer.get_elapsed_time(), Duration::from_secs(100));
+    }
+
+    #[test]
+    fn zero_duration_timer_starts_and_stays_complete() {
+        let timer = Timer::new(Duration::ZERO);
+        timer.start();
+
+        assert_eq!(timer.get_elapsed_time(), Duration::ZERO);
+    }
+
+    #[test]
+    fn running_timer_advances_elapsed_seconds() {
+        let timer = Timer::new(Duration::from_secs(1));
+        timer.start();
+
+        let deadline = std::time::Instant::now() + Duration::from_millis(1300);
+        while timer.get_elapsed_time().is_zero() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert_eq!(timer.get_elapsed_time(), Duration::from_secs(1));
+    }
+}

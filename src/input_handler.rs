@@ -57,10 +57,16 @@ pub(crate) fn start_input_stream() -> std::sync::mpsc::Receiver<String> {
 /// A boolean value indicating whether the program should exit or not.
 ///
 fn process_key_event(sender: &std::sync::mpsc::Sender<String>) -> bool {
-    let mut exit = false;
-    if let Ok(Event::Key(key_event)) = read() {
+    match read() {
+        Ok(event) => process_event(sender, event),
+        Err(_) => false,
+    }
+}
+
+fn process_event(sender: &std::sync::mpsc::Sender<String>, event: Event) -> bool {
+    if let Event::Key(key_event) = event {
         debug!("Received key event: {:?}", key_event);
-        if key_event.kind != crossterm::event::KeyEventKind::Press {
+        if key_event.kind == crossterm::event::KeyEventKind::Press {
             if key_event.code == KeyCode::Char('c')
                 && key_event.modifiers == crossterm::event::KeyModifiers::CONTROL
             {
@@ -69,7 +75,7 @@ fn process_key_event(sender: &std::sync::mpsc::Sender<String>) -> bool {
                     .send("ctrl+c".to_string())
                     .expect("Failed to send input.");
                 disable_raw_mode().expect("Failed to disable raw mode.");
-                exit = true;
+                return true;
             } else if let KeyCode::Char(c) = key_event.code {
                 sender.send(c.to_string()).expect("Failed to send input.");
             } else if key_event.code == KeyCode::Enter {
@@ -79,5 +85,75 @@ fn process_key_event(sender: &std::sync::mpsc::Sender<String>) -> bool {
             }
         }
     }
-    exit
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::process_event;
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+    use std::sync::mpsc;
+
+    fn key_event(code: KeyCode, kind: KeyEventKind, modifiers: KeyModifiers) -> Event {
+        Event::Key(KeyEvent::new_with_kind(code, modifiers, kind))
+    }
+
+    #[test]
+    fn printable_press_is_forwarded_but_release_is_ignored() {
+        let (sender, receiver) = mpsc::channel();
+
+        assert!(!process_event(
+            &sender,
+            key_event(KeyCode::Char('x'), KeyEventKind::Press, KeyModifiers::NONE)
+        ));
+        assert_eq!(receiver.try_recv().unwrap(), "x");
+
+        assert!(!process_event(
+            &sender,
+            key_event(KeyCode::Char('x'), KeyEventKind::Release, KeyModifiers::NONE)
+        ));
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn enter_press_is_forwarded() {
+        let (sender, receiver) = mpsc::channel();
+
+        process_event(
+            &sender,
+            key_event(KeyCode::Enter, KeyEventKind::Press, KeyModifiers::NONE),
+        );
+
+        assert_eq!(receiver.try_recv().unwrap(), "\n");
+    }
+
+    #[test]
+    fn control_c_press_is_forwarded_and_requests_exit() {
+        let (sender, receiver) = mpsc::channel();
+
+        let should_exit = process_event(
+            &sender,
+            key_event(
+                KeyCode::Char('c'),
+                KeyEventKind::Press,
+                KeyModifiers::CONTROL,
+            ),
+        );
+
+        assert!(should_exit);
+        assert_eq!(receiver.try_recv().unwrap(), "ctrl+c");
+    }
+
+    #[test]
+    fn non_key_events_and_non_printable_keys_are_ignored() {
+        let (sender, receiver) = mpsc::channel();
+
+        assert!(!process_event(&sender, Event::Resize(80, 24)));
+        assert!(!process_event(
+            &sender,
+            key_event(KeyCode::Esc, KeyEventKind::Press, KeyModifiers::NONE)
+        ));
+
+        assert!(receiver.try_recv().is_err());
+    }
 }
