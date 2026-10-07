@@ -33,4 +33,4 @@ fn service_mode_process_emits_ready_state_and_stopped_events() {
         .collect();
 
     assert_eq!(event_types, ["ready", "state", "stopped"]);
-}
+}

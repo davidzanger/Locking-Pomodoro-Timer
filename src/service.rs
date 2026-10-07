@@ -9,7 +9,7 @@ use crate::timer::Timer;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, BufWriter, Write};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::Duration;
 
@@ -209,7 +209,10 @@ mod tests {
 
         assert!(!session.handle_line("not json", &mut output).unwrap());
         assert!(!session
-            .handle_line(r#"{"protocolVersion":2,"command":{"type":"quit"}}"#, &mut output)
+            .handle_line(
+                r#"{"protocolVersion":2,"command":{"type":"quit"}}"#,
+                &mut output
+            )
             .unwrap());
 
         let events = output_events(&output);
@@ -256,7 +259,10 @@ mod tests {
             .handle_line(&command_line(r#"{"type":"pause"}"#), &mut output)
             .unwrap();
         session
-            .handle_line(&command_line(r#"{"type":"skip","seconds":40}"#), &mut output)
+            .handle_line(
+                &command_line(r#"{"type":"skip","seconds":40}"#),
+                &mut output,
+            )
             .unwrap();
         session
             .handle_line(&command_line(r#"{"type":"resume"}"#), &mut output)
@@ -272,7 +278,9 @@ mod tests {
         assert_eq!(session.last_reported_elapsed, 0);
         assert!(session.timer.is_none());
         let events = output_events(&output);
-        assert!(events.iter().any(|event| event["event"]["elapsedSeconds"] == 40));
+        assert!(events
+            .iter()
+            .any(|event| event["event"]["elapsedSeconds"] == 40));
         assert_eq!(events.last().unwrap()["event"]["status"], "idle");
     }
 
@@ -288,7 +296,10 @@ mod tests {
             .unwrap();
 
         let events = output_events(&output);
-        assert_eq!(events.last().unwrap()["event"]["message"], "Timer is already active");
+        assert_eq!(
+            events.last().unwrap()["event"]["message"],
+            "Timer is already active"
+        );
 
         let mut options = PomodoroOptions::default();
         options.duration_pomodoro = 0;
@@ -297,7 +308,10 @@ mod tests {
         session
             .handle_line(&command_line(r#"{"type":"start"}"#), &mut output)
             .unwrap();
-        assert_eq!(output_events(&output)[0]["event"]["message"], "Cannot start a zero-length phase");
+        assert_eq!(
+            output_events(&output)[0]["event"]["message"],
+            "Cannot start a zero-length phase"
+        );
         assert_eq!(session.status, TimerStatus::Idle);
     }
 
@@ -369,8 +383,14 @@ mod tests {
         let (session, _) = test_session(options);
 
         assert_eq!(session.next_break_phase(), None);
-        assert_eq!(session.phase_duration(TimerPhase::LongBreak), Duration::ZERO);
-        assert_eq!(session.phase_duration(TimerPhase::AdditionalPomodoro), Duration::ZERO);
+        assert_eq!(
+            session.phase_duration(TimerPhase::LongBreak),
+            Duration::ZERO
+        );
+        assert_eq!(
+            session.phase_duration(TimerPhase::AdditionalPomodoro),
+            Duration::ZERO
+        );
 
         let mut options = PomodoroOptions::default();
         options.interval_long_break = -1;
@@ -443,16 +463,17 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
         let input_thread = thread::spawn(move || {
             thread::sleep(Duration::from_millis(120));
-            sender
-                .send(command_line(r#"{"type":"quit"}"#))
-                .unwrap();
+            sender.send(command_line(r#"{"type":"quit"}"#)).unwrap();
         });
         let mut output = Vec::new();
 
         run_session(PomodoroOptions::default(), receiver, &mut output).unwrap();
         input_thread.join().unwrap();
 
-        assert_eq!(output_events(&output).last().unwrap()["event"]["type"], "stopped");
+        assert_eq!(
+            output_events(&output).last().unwrap()["event"]["type"],
+            "stopped"
+        );
     }
 
     #[test]
@@ -511,20 +532,13 @@ mod tests {
     fn writer_failures_are_returned_to_the_caller() {
         let (mut session, _) = test_session(PomodoroOptions::default());
         let error = session
-            .handle_line(
-                &command_line(r#"{"type":"pause"}"#),
-                &mut FailingWriter,
-            )
+            .handle_line(&command_line(r#"{"type":"pause"}"#), &mut FailingWriter)
             .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
 
         let (_, receiver) = mpsc::channel();
-        let error = run_session(
-            PomodoroOptions::default(),
-            receiver,
-            &mut FailingWriter,
-        )
-        .unwrap_err();
+        let error =
+            run_session(PomodoroOptions::default(), receiver, &mut FailingWriter).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 
@@ -588,6 +602,51 @@ pub(crate) fn run() -> Result<()> {
     });
 
     run_session(options, receiver, &mut writer).context("Service loop failed")
+}
+
+pub(crate) fn run_embedded(receiver: Receiver<String>, sender: Sender<String>) -> Result<()> {
+    let mut writer = EventChannelWriter {
+        sender,
+        pending: Vec::new(),
+    };
+    let options = match load_options() {
+        Ok(options) => options,
+        Err(error) => {
+            send_event(
+                &mut writer,
+                Event::Error {
+                    message: format!("{:#}", error),
+                },
+            )?;
+            return Ok(());
+        }
+    };
+
+    run_session(options, receiver, &mut writer).context("Service loop failed")
+}
+
+struct EventChannelWriter {
+    sender: Sender<String>,
+    pending: Vec<u8>,
+}
+
+impl Write for EventChannelWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.pending.extend_from_slice(bytes);
+        while let Some(line_end) = self.pending.iter().position(|byte| *byte == b'\n') {
+            let line: Vec<_> = self.pending.drain(..=line_end).collect();
+            let line = String::from_utf8(line[..line.len() - 1].to_vec())
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+            self.sender
+                .send(line)
+                .map_err(|error| io::Error::new(io::ErrorKind::BrokenPipe, error))?;
+        }
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 fn run_session(
