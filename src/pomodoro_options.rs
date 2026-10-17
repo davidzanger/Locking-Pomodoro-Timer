@@ -17,6 +17,10 @@ pub struct PomodoroOptions {
     pub duration_pomodoro: i32,
     /// The additional duration in minutes to be added to a Pomodoro session when it is over.
     pub additional_duration: i32,
+    /// Repeat the Additional Pomodoro until the user requests the due break.
+    pub repeat_additional_pomodoro: bool,
+    /// Ask whether to continue working after each completed Additional Pomodoro.
+    pub ask_before_break: bool,
     /// The duration of a short break in minutes.
     pub duration_short_break: i32,
     /// The duration of a long break in minutes.
@@ -39,6 +43,56 @@ pub struct PomodoroOptions {
     pub event_reminder_after_break: EndEvent,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TimerSettings {
+    pub duration_pomodoro: i32,
+    pub additional_duration: i32,
+    #[serde(default = "enabled_by_default")]
+    pub repeat_additional_pomodoro: bool,
+    #[serde(default = "enabled_by_default")]
+    pub ask_before_break: bool,
+    pub duration_short_break: i32,
+    pub duration_long_break: i32,
+    pub interval_long_break: i32,
+    pub auto_start_break: bool,
+    pub auto_start_pomodoro: bool,
+}
+
+pub(crate) fn enabled_by_default() -> bool {
+    true
+}
+
+impl From<&PomodoroOptions> for TimerSettings {
+    fn from(options: &PomodoroOptions) -> Self {
+        Self {
+            duration_pomodoro: options.duration_pomodoro,
+            additional_duration: options.additional_duration,
+            repeat_additional_pomodoro: options.repeat_additional_pomodoro,
+            ask_before_break: options.ask_before_break,
+            duration_short_break: options.duration_short_break,
+            duration_long_break: options.duration_long_break,
+            interval_long_break: options.interval_long_break,
+            auto_start_break: options.auto_start_break,
+            auto_start_pomodoro: options.auto_start_pomodoro,
+        }
+    }
+}
+
+impl TimerSettings {
+    fn apply_to(self, options: &mut PomodoroOptions) {
+        options.duration_pomodoro = self.duration_pomodoro;
+        options.additional_duration = self.additional_duration;
+        options.repeat_additional_pomodoro = self.repeat_additional_pomodoro;
+        options.ask_before_break = self.ask_before_break;
+        options.duration_short_break = self.duration_short_break;
+        options.duration_long_break = self.duration_long_break;
+        options.interval_long_break = self.interval_long_break;
+        options.auto_start_break = self.auto_start_break;
+        options.auto_start_pomodoro = self.auto_start_pomodoro;
+    }
+}
+
 /// Error type for verification errors of `PomodoroOptions`.
 #[derive(Error, Debug)]
 pub(crate) enum VerificationError {
@@ -50,6 +104,10 @@ pub(crate) enum VerificationError {
     InvalidShortBreakDuration,
     #[error("Long break duration should be at least 0 minute.")]
     InvalidLongBreakDuration,
+    #[error("Long break interval should be at least 0 Pomodoros.")]
+    InvalidLongBreakInterval,
+    #[error("Reminder interval should be at least 0 minutes.")]
+    InvalidReminderInterval,
     #[error("Sound file does not exist.")]
     InvalidSoundFile,
 }
@@ -60,6 +118,8 @@ impl Default for PomodoroOptions {
         PomodoroOptions {
             duration_pomodoro: 25,
             additional_duration: 5,
+            repeat_additional_pomodoro: true,
+            ask_before_break: true,
             duration_short_break: 5,
             duration_long_break: 15,
             auto_start_break: true,
@@ -95,6 +155,12 @@ impl PomodoroOptions {
         }
         if self.duration_long_break < 0 {
             return Err(VerificationError::InvalidLongBreakDuration);
+        }
+        if self.interval_long_break < 0 {
+            return Err(VerificationError::InvalidLongBreakInterval);
+        }
+        if self.interval_reminder_after_break < 0 {
+            return Err(VerificationError::InvalidReminderInterval);
         }
         if let EndEvent::Sound { filepath_sound } = &self.end_event_pomodoro {
             if !PathBuf::from(&filepath_sound).is_file() && !filepath_sound.as_os_str().is_empty() {
@@ -134,6 +200,58 @@ pub(crate) fn read_options_from_json_silent(
     filepath_json: Option<PathBuf>,
 ) -> Result<PomodoroOptions> {
     read_options_from_json_inner(filepath_json, true)
+}
+
+pub(crate) fn read_timer_settings_json() -> Result<String> {
+    read_timer_settings_json_from_path(None)
+}
+
+fn read_timer_settings_json_from_path(filepath_json: Option<PathBuf>) -> Result<String> {
+    let options = match read_options_from_json_silent(filepath_json) {
+        Ok(options) => options,
+        Err(error)
+            if matches!(
+                error.downcast_ref::<PomodoroOptionsError>(),
+                Some(PomodoroOptionsError::OptionFileNotFound(_))
+            ) =>
+        {
+            PomodoroOptions::default()
+        }
+        Err(error) => return Err(error),
+    };
+    serde_json::to_string(&TimerSettings::from(&options))
+        .context("Failed to serialize timer settings")
+}
+
+pub(crate) fn save_timer_settings_json(settings_json: &str) -> Result<()> {
+    save_timer_settings_json_to_path(settings_json, None)
+}
+
+fn save_timer_settings_json_to_path(
+    settings_json: &str,
+    filepath_json: Option<PathBuf>,
+) -> Result<()> {
+    let settings: TimerSettings =
+        serde_json::from_str(settings_json).context("Failed to parse timer settings")?;
+    let file_path = match filepath_json {
+        Some(path) => path,
+        None => get_filepath_options_next_to_executable()?,
+    };
+    let mut options = match read_options_from_json_silent(Some(file_path.clone())) {
+        Ok(options) => options,
+        Err(error)
+            if matches!(
+                error.downcast_ref::<PomodoroOptionsError>(),
+                Some(PomodoroOptionsError::OptionFileNotFound(_))
+            ) =>
+        {
+            PomodoroOptions::default()
+        }
+        Err(error) => return Err(error),
+    };
+    settings.apply_to(&mut options);
+    options.verify().context("Invalid timer settings")?;
+    write_options_to_json(&file_path, &options)
 }
 
 fn read_options_from_json_inner(
@@ -197,6 +315,7 @@ pub(crate) fn write_default_options_to_json_next_to_executable() -> Result<()> {
 ///
 /// Returns an error if there are any errors during the process of writing the options to the file.
 pub(crate) fn write_options_to_json(file_path: &PathBuf, options: &PomodoroOptions) -> Result<()> {
+    options.verify().context("Invalid timer options")?;
     let file = File::create(&file_path)
         .with_context(|| format!("Failed to create file: {:?}", file_path))?;
     serde_json::to_writer_pretty(file, options)
@@ -249,7 +368,8 @@ fn test_read_options_from_json() {
 #[cfg(test)]
 mod additional_tests {
     use super::{
-        read_options_from_json_inner, write_options_to_json, PomodoroOptions,
+        read_options_from_json_inner, read_timer_settings_json_from_path,
+        save_timer_settings_json_to_path, write_options_to_json, PomodoroOptions,
         VerificationError,
     };
     use crate::end_events::EndEvent;
@@ -282,7 +402,10 @@ mod additional_tests {
     fn verification_rejects_each_negative_or_zero_duration() {
         let mut options = PomodoroOptions::default();
         options.duration_pomodoro = 0;
-        assert!(matches!(options.verify(), Err(VerificationError::InvalidDuration)));
+        assert!(matches!(
+            options.verify(),
+            Err(VerificationError::InvalidDuration)
+        ));
 
         options = PomodoroOptions::default();
         options.additional_duration = -1;
@@ -303,6 +426,20 @@ mod additional_tests {
         assert!(matches!(
             options.verify(),
             Err(VerificationError::InvalidLongBreakDuration)
+        ));
+
+        options = PomodoroOptions::default();
+        options.interval_long_break = -1;
+        assert!(matches!(
+            options.verify(),
+            Err(VerificationError::InvalidLongBreakInterval)
+        ));
+        options.interval_long_break = 0;
+        assert!(options.verify().is_ok());
+        options.interval_reminder_after_break = -1;
+        assert!(matches!(
+            options.verify(),
+            Err(VerificationError::InvalidReminderInterval)
         ));
     }
 
@@ -394,7 +531,11 @@ mod additional_tests {
     #[test]
     fn options_path_is_next_to_current_executable() {
         let path = super::get_filepath_options_next_to_executable().unwrap();
-        let executable_parent = std::env::current_exe().unwrap().parent().unwrap().to_owned();
+        let executable_parent = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_owned();
 
         assert_eq!(path.file_name().unwrap(), "pomodoro_options.json");
         assert_eq!(path.parent().unwrap(), executable_parent);
@@ -411,6 +552,104 @@ mod additional_tests {
 
         assert_eq!(loaded.duration_pomodoro, 42);
         assert_eq!(loaded.duration_short_break, options.duration_short_break);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn timer_settings_api_preserves_other_rust_options_and_never_writes_theme() {
+        let path = temporary_file("json");
+        let mut options = PomodoroOptions::default();
+        options.interval_reminder_after_break = 9;
+        write_options_to_json(&path, &options).unwrap();
+
+        save_timer_settings_json_to_path(
+            r#"{"durationPomodoro":30,"additionalDuration":0,"durationShortBreak":4,"durationLongBreak":12,"intervalLongBreak":3,"autoStartBreak":false,"autoStartPomodoro":false}"#,
+            Some(path.clone()),
+        )
+        .unwrap();
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        let persisted: serde_json::Value = serde_json::from_str(&contents).unwrap();
+        let timer_settings: serde_json::Value =
+            serde_json::from_str(&read_timer_settings_json_from_path(Some(path.clone())).unwrap())
+                .unwrap();
+
+        assert_eq!(persisted["durationPomodoro"], 30);
+        assert_eq!(persisted["intervalReminderAfterBreak"], 9);
+        assert_eq!(persisted.get("themeMode"), None);
+        assert_eq!(timer_settings["durationPomodoro"], 30);
+        assert_eq!(timer_settings["autoStartBreak"], false);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn older_options_enable_repetition_when_the_additional_duration_is_positive() {
+        let path = temporary_file("json");
+        std::fs::write(
+            &path,
+            r#"{"durationPomodoro":25,"additionalDuration":5,"durationShortBreak":5,"durationLongBreak":15,"intervalLongBreak":4,"autoStartBreak":true,"autoStartPomodoro":true}"#,
+        )
+        .unwrap();
+        let options = read_options_from_json_inner(Some(path.clone()), true).unwrap();
+        assert!(options.repeat_additional_pomodoro);
+        assert!(options.ask_before_break);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn timer_settings_api_rejects_invalid_values_without_saving() {
+        let path = temporary_file("json");
+        let original = PomodoroOptions::default();
+        write_options_to_json(&path, &original).unwrap();
+
+        let error = save_timer_settings_json_to_path(
+            r#"{"durationPomodoro":0,"additionalDuration":0,"durationShortBreak":4,"durationLongBreak":12,"intervalLongBreak":3,"autoStartBreak":false,"autoStartPomodoro":false}"#,
+            Some(path.clone()),
+        )
+        .unwrap_err();
+        let saved = read_options_from_json_inner(Some(path.clone()), true).unwrap();
+
+        assert!(format!("{error:#}").contains("Invalid timer settings"));
+        assert_eq!(saved.duration_pomodoro, original.duration_pomodoro);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn negative_long_break_interval_is_rejected_when_reading_and_saving() {
+        let path = temporary_file("json");
+        let mut options = PomodoroOptions::default();
+        options.interval_long_break = -1;
+        std::fs::write(&path, serde_json::to_vec(&options).unwrap()).unwrap();
+        assert!(matches!(
+            read_options_from_json_inner(Some(path.clone()), true)
+                .unwrap_err()
+                .downcast_ref::<VerificationError>(),
+            Some(VerificationError::InvalidLongBreakInterval)
+        ));
+
+        options.interval_long_break = 4;
+        write_options_to_json(&path, &options).unwrap();
+        let error = save_timer_settings_json_to_path(
+            r#"{"durationPomodoro":25,"additionalDuration":5,"durationShortBreak":5,"durationLongBreak":15,"intervalLongBreak":-1,"autoStartBreak":true,"autoStartPomodoro":true}"#,
+            Some(path.clone()),
+        )
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("Long break interval"));
+        assert_eq!(
+            read_options_from_json_inner(Some(path.clone()), true)
+                .unwrap()
+                .interval_long_break,
+            4
+        );
+        options.interval_long_break = -1;
+        let error = write_options_to_json(&path, &options).unwrap_err();
+        assert!(format!("{error:#}").contains("Long break interval"));
+        assert_eq!(
+            read_options_from_json_inner(Some(path.clone()), true)
+                .unwrap()
+                .interval_long_break,
+            4
+        );
         std::fs::remove_file(path).unwrap();
     }
 

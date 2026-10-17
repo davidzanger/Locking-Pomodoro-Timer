@@ -63,17 +63,35 @@ fn run_pomodoro(options: &PomodoroOptions, receiver: &std::sync::mpsc::Receiver<
 
             execute_timer(duration, receiver, end_event);
 
-            if options.additional_duration != 0 {
-                let print_message =
-                    generate_print_message_before_additional_break(&pomo_info, &options);
-                println!("{}", print_message);
-                time_with_progress_bar(additional_duration, receiver, || {
-                    start_end_event(&options.end_event_additional_pomodoro)
-                });
+            let mut requested_break = false;
+            if options.additional_duration != 0
+                && !(options.repeat_additional_pomodoro && pomo_info.break_duration.is_zero())
+            {
+                loop {
+                    let print_message =
+                        generate_print_message_before_additional_break(&pomo_info, &options);
+                    println!("{}", print_message);
+                    let completed = time_with_progress_bar(additional_duration, receiver, || {
+                        start_end_event(&options.end_event_additional_pomodoro)
+                    });
+                    if !completed {
+                        requested_break = true;
+                        break;
+                    }
+                    if !options.repeat_additional_pomodoro {
+                        break;
+                    }
+                    if options.ask_before_break {
+                        requested_break = ask_for_break(receiver, options.additional_duration);
+                        if requested_break {
+                            break;
+                        }
+                    }
+                }
             }
 
             if !pomo_info.break_duration.is_zero() {
-                if !options.auto_start_break {
+                if !options.auto_start_break && !requested_break {
                     if pomo_info.is_long_break_coming {
                         println!(
                             "Press enter to start the long break of {:.0} minutes.",
@@ -103,6 +121,51 @@ fn run_pomodoro(options: &PomodoroOptions, receiver: &std::sync::mpsc::Receiver<
         counter += 1;
     }
 }
+
+fn ask_for_break(receiver: &std::sync::mpsc::Receiver<String>, minutes: i32) -> bool {
+    loop {
+        focus_terminal_window();
+        println!("A short break can help you return with a clearer head. Ready to take one?");
+        println!("1. Keep working ({minutes} min)  2. Take a break (Q)");
+        loop {
+            match receiver.recv_timeout(Duration::from_secs(1)) {
+                Ok(input) => match input.as_str() {
+                    "1" => return false,
+                    "2" | "q" | "Q" => return true,
+                    "ctrl+c" => std::process::exit(0),
+                    _ => break,
+                },
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => focus_terminal_window(),
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    panic!("Failed to receive input.")
+                }
+            }
+        }
+    }
+}
+
+#[cfg(all(windows, not(test)))]
+fn focus_terminal_window() {
+    use std::ffi::c_void;
+
+    #[link(name = "Kernel32")]
+    extern "system" {
+        fn GetConsoleWindow() -> *mut c_void;
+    }
+    #[link(name = "User32")]
+    extern "system" {
+        fn SetForegroundWindow(window: *mut c_void) -> i32;
+    }
+    unsafe {
+        let window = GetConsoleWindow();
+        if !window.is_null() {
+            SetForegroundWindow(window);
+        }
+    }
+}
+
+#[cfg(any(not(windows), test))]
+fn focus_terminal_window() {}
 /// Asks the user if they want to repeat the Pomodoro timer.
 ///
 /// This function prompts the user to press enter to repeat the timer or 'q' to quit.
@@ -181,7 +244,7 @@ fn time_with_progress_bar<F: Fn()>(
     duration: Duration,
     receiver: &std::sync::mpsc::Receiver<String>,
     end_event: F,
-) {
+) -> bool {
     let timer = Timer::new(duration);
     let mut bar = ProgressBar::new(duration.as_secs());
     bar.set_style(
@@ -193,9 +256,9 @@ fn time_with_progress_bar<F: Fn()>(
     println!("Press 'p' to pause, 'q' to quit current timer and 's' to skip 1 minute.");
     let mut control_flow;
     while timer.get_elapsed_time() < duration {
-        (bar,control_flow) = handle_user_input(receiver, &timer, bar);
+        (bar, control_flow) = handle_user_input(receiver, &timer, bar);
         if control_flow == ControlFlow::Break(()) {
-            return;
+            return false;
         }
         thread::sleep(Duration::from_millis(delta));
         if !timer.is_paused() {
@@ -208,6 +271,7 @@ fn time_with_progress_bar<F: Fn()>(
     }
     bar.finish();
     end_event();
+    true
 }
 
 /// Handles user input during the timer execution.
@@ -222,8 +286,11 @@ fn time_with_progress_bar<F: Fn()>(
 ///
 /// # Returns
 /// A tuple containing the updated progress bar and a control flow indicating whether to continue or break.
-fn handle_user_input(receiver: &std::sync::mpsc::Receiver<String>, timer: &Timer, mut bar: ProgressBar) -> (ProgressBar,  ControlFlow<()>)
- {
+fn handle_user_input(
+    receiver: &std::sync::mpsc::Receiver<String>,
+    timer: &Timer,
+    mut bar: ProgressBar,
+) -> (ProgressBar, ControlFlow<()>) {
     if let Ok(input) = receiver.try_recv() {
         if input == "p" {
             timer.pause();
@@ -232,12 +299,10 @@ fn handle_user_input(receiver: &std::sync::mpsc::Receiver<String>, timer: &Timer
         } else if input == "r" {
             timer.resume();
             println!("Timer resumed.");
-            println!(
-                "Press 'p' to pause, 'q' to quit current timer and 's' to skip 1 minute."
-            );
+            println!("Press 'p' to pause, 'q' to quit current timer and 's' to skip 1 minute.");
             bar = bar.with_elapsed(timer.get_elapsed_time());
             bar.reset_eta();
-        } else if input == "q" {
+        } else if input == "q" || input == "Q" {
             // Return early to not execute the end event.
             println!("Exiting the current timer.");
             return (bar, ControlFlow::Break(()));
@@ -264,7 +329,7 @@ fn handle_user_input(receiver: &std::sync::mpsc::Receiver<String>, timer: &Timer
 #[cfg(test)]
 mod tests {
     use super::{
-        ask_for_new_pomodoro, execute_timer, handle_user_input, run_pomodoro,
+        ask_for_break, ask_for_new_pomodoro, execute_timer, handle_user_input, run_pomodoro,
         time_with_progress_bar,
     };
     use crate::pomodoro_options::PomodoroOptions;
@@ -401,5 +466,17 @@ mod tests {
         sender.send("q".to_string()).unwrap();
 
         run_pomodoro(&options, &receiver);
+    }
+
+    #[test]
+    fn break_question_accepts_one_to_continue_and_two_or_q_to_rest() {
+        let (sender, receiver) = mpsc::channel();
+        sender.send("x".to_string()).unwrap();
+        sender.send("1".to_string()).unwrap();
+        sender.send("2".to_string()).unwrap();
+        sender.send("q".to_string()).unwrap();
+        assert!(!ask_for_break(&receiver, 5));
+        assert!(ask_for_break(&receiver, 5));
+        assert!(ask_for_break(&receiver, 5));
     }
 }

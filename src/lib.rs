@@ -19,6 +19,25 @@ mod pomodoro_options;
 mod service;
 mod timer;
 
+/// Loads the timer-specific configuration as JSON for the GUI bridge.
+///
+/// # Errors
+///
+/// Returns an error if the current timer options cannot be loaded or serialized.
+pub fn read_timer_settings_json() -> Result<String, String> {
+    pomodoro_options::read_timer_settings_json().map_err(|error| format!("{error:#}"))
+}
+
+/// Saves timer-specific configuration supplied by the GUI bridge.
+///
+/// # Errors
+///
+/// Returns an error if the JSON is invalid, the settings fail validation, or the
+/// options file cannot be read or written.
+pub fn save_timer_settings_json(settings_json: &str) -> Result<(), String> {
+    pomodoro_options::save_timer_settings_json(settings_json).map_err(|error| format!("{error:#}"))
+}
+
 /// Starts the interactive command-line timer.
 pub fn run_cli() {
     let logging_config_file = PathBuf::from("pomodoro_logging.yaml");

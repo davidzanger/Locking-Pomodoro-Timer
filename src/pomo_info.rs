@@ -24,6 +24,13 @@ impl PomoInfo {
     ///
     /// A new `PomoInfo` instance with the calculated values.
     pub(crate) fn from_options(options: &PomodoroOptions, counter: i32) -> Self {
+        if options.interval_long_break == 0 {
+            return Self {
+                pomodoros_till_long_break: 0,
+                is_long_break_coming: false,
+                break_duration: Duration::from_secs((options.duration_short_break * 60) as u64),
+            };
+        }
         let pomodoros_till_long_break =
             options.interval_long_break - counter % options.interval_long_break;
         let is_long_break_coming =
@@ -53,6 +60,16 @@ mod tests {
         let info = PomoInfo::from_options(&PomodoroOptions::default(), 0);
 
         assert_eq!(info.pomodoros_till_long_break, 4);
+        assert!(!info.is_long_break_coming);
+        assert_eq!(info.break_duration, Duration::from_secs(5 * 60));
+    }
+
+    #[test]
+    fn zero_interval_disables_long_breaks_without_dividing_by_zero() {
+        let mut options = PomodoroOptions::default();
+        options.interval_long_break = 0;
+        let info = PomoInfo::from_options(&options, 7);
+        assert_eq!(info.pomodoros_till_long_break, 0);
         assert!(!info.is_long_break_coming);
         assert_eq!(info.break_duration, Duration::from_secs(5 * 60));
     }

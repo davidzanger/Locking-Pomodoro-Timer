@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, BufWriter, Write};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub(crate) const PROTOCOL_VERSION: u32 = 1;
 
@@ -29,8 +29,28 @@ pub(crate) enum Command {
     Pause,
     Resume,
     Skip { seconds: u64 },
+    NextPhase,
+    ContinueAdditional,
+    StartBreak,
+    UpdateSettings { settings: TimerOptions },
     Cancel,
     Quit,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TimerOptions {
+    duration_pomodoro: i32,
+    additional_duration: i32,
+    #[serde(default = "crate::pomodoro_options::enabled_by_default")]
+    repeat_additional_pomodoro: bool,
+    #[serde(default = "crate::pomodoro_options::enabled_by_default")]
+    ask_before_break: bool,
+    duration_short_break: i32,
+    duration_long_break: i32,
+    interval_long_break: i32,
+    auto_start_break: bool,
+    auto_start_pomodoro: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -76,6 +96,7 @@ pub(crate) enum TimerStatus {
     Running,
     Paused,
     Waiting,
+    AwaitingBreakDecision,
 }
 
 #[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
@@ -93,12 +114,25 @@ mod tests {
         run_session, Command, Event, Request, Response, Session, TimerPhase, TimerStatus,
         PROTOCOL_VERSION,
     };
+    use crate::end_events::EndEvent;
     use crate::pomodoro_options::PomodoroOptions;
     use crate::timer::Timer;
     use std::io::{self, Write};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::mpsc;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
+
+    static REMINDERS: AtomicUsize = AtomicUsize::new(0);
+    static END_EVENTS: AtomicUsize = AtomicUsize::new(0);
+
+    fn count_reminder(_: &EndEvent) {
+        REMINDERS.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn count_end_event(_: &EndEvent) {
+        END_EVENTS.fetch_add(1, Ordering::Relaxed);
+    }
 
     fn test_session(options: PomodoroOptions) -> (Session, mpsc::Sender<String>) {
         let (sender, receiver) = mpsc::channel();
@@ -142,6 +176,71 @@ mod tests {
 
         assert_eq!(request.protocol_version, PROTOCOL_VERSION);
         assert!(matches!(request.command, Command::Skip { seconds: 60 }));
+    }
+
+    #[test]
+    fn settings_updates_take_effect_after_the_active_phase() {
+        let (mut session, _) = test_session(PomodoroOptions::default());
+        let mut output = Vec::new();
+        session
+            .handle_line(&command_line(r#"{"type":"start"}"#), &mut output)
+            .unwrap();
+
+        session
+            .handle_line(
+                &command_line(
+                    r#"{"type":"updateSettings","settings":{"durationPomodoro":30,"additionalDuration":0,"durationShortBreak":2,"durationLongBreak":10,"intervalLongBreak":3,"autoStartBreak":false,"autoStartPomodoro":false}}"#,
+                ),
+                &mut output,
+            )
+            .unwrap();
+
+        assert_eq!(session.duration, Duration::from_secs(25 * 60));
+        session.complete_phase(&mut output).unwrap();
+        assert_eq!(session.status, TimerStatus::Waiting);
+        assert_eq!(session.phase, Some(TimerPhase::ShortBreak));
+        assert_eq!(session.duration, Duration::from_secs(2 * 60));
+    }
+
+    #[test]
+    fn invalid_settings_update_is_rejected_without_mutation() {
+        let (mut session, _) = test_session(PomodoroOptions::default());
+        let mut output = Vec::new();
+
+        session
+            .handle_line(
+                &command_line(
+                    r#"{"type":"updateSettings","settings":{"durationPomodoro":0,"additionalDuration":0,"durationShortBreak":5,"durationLongBreak":15,"intervalLongBreak":4,"autoStartBreak":true,"autoStartPomodoro":true}}"#,
+                ),
+                &mut output,
+            )
+            .unwrap();
+
+        assert_eq!(session.options.duration_pomodoro, 25);
+        assert_eq!(
+            output_events(&output)[0]["event"]["message"],
+            "Timer settings are out of range"
+        );
+    }
+
+    #[test]
+    fn negative_long_break_interval_update_is_rejected_without_mutation() {
+        let (mut session, _) = test_session(PomodoroOptions::default());
+        let mut output = Vec::new();
+        session
+            .handle_line(
+                &command_line(
+                    r#"{"type":"updateSettings","settings":{"durationPomodoro":25,"additionalDuration":5,"durationShortBreak":5,"durationLongBreak":15,"intervalLongBreak":-1,"autoStartBreak":true,"autoStartPomodoro":true}}"#,
+                ),
+                &mut output,
+            )
+            .unwrap();
+
+        assert_eq!(session.options.interval_long_break, 4);
+        assert_eq!(
+            output_events(&output)[0]["event"]["message"],
+            "Timer settings are out of range"
+        );
     }
 
     #[test]
@@ -285,6 +384,27 @@ mod tests {
     }
 
     #[test]
+    fn next_phase_advances_without_running_end_events() {
+        END_EVENTS.store(0, Ordering::Relaxed);
+        let (mut session, _) = test_session(PomodoroOptions::default());
+        session.end_event_runner = count_end_event;
+        let mut output = Vec::new();
+        session
+            .handle_line(&command_line(r#"{"type":"start"}"#), &mut output)
+            .unwrap();
+        session
+            .handle_line(&command_line(r#"{"type":"nextPhase"}"#), &mut output)
+            .unwrap();
+        assert_eq!(session.phase, Some(TimerPhase::AdditionalPomodoro));
+        session
+            .handle_line(&command_line(r#"{"type":"nextPhase"}"#), &mut output)
+            .unwrap();
+        assert_eq!(session.phase, Some(TimerPhase::ShortBreak));
+        assert_eq!(END_EVENTS.load(Ordering::Relaxed), 0);
+        assert_eq!(session.completed_pomodoros, 1);
+    }
+
+    #[test]
     fn starting_active_timer_is_rejected_and_zero_length_phase_is_not_started() {
         let (mut session, _) = test_session(PomodoroOptions::default());
         let mut output = Vec::new();
@@ -317,7 +437,9 @@ mod tests {
 
     #[test]
     fn completion_of_fourth_pomodoro_starts_long_break() {
-        let (mut session, _) = test_session(PomodoroOptions::default());
+        let mut options = PomodoroOptions::default();
+        options.repeat_additional_pomodoro = false;
+        let (mut session, _) = test_session(options);
         let mut output = Vec::new();
         session.completed_pomodoros = 3;
         session.phase = Some(TimerPhase::Pomodoro);
@@ -339,6 +461,7 @@ mod tests {
     fn completing_additional_session_can_wait_for_break_start() {
         let mut options = PomodoroOptions::default();
         options.auto_start_break = false;
+        options.repeat_additional_pomodoro = false;
         let (mut session, _) = test_session(options);
         let mut output = Vec::new();
         session.completed_pomodoros = 1;
@@ -360,6 +483,75 @@ mod tests {
     }
 
     #[test]
+    fn additional_rounds_wait_for_a_decision_without_incrementing_pomodoros() {
+        let (mut session, _) = test_session(PomodoroOptions::default());
+        let mut output = Vec::new();
+        session.completed_pomodoros = 1;
+        session.phase = Some(TimerPhase::AdditionalPomodoro);
+        session.complete_phase(&mut output).unwrap();
+        assert_eq!(session.status, TimerStatus::AwaitingBreakDecision);
+        assert!(session.timer.is_none());
+
+        session
+            .handle_line(
+                &command_line(r#"{"type":"continueAdditional"}"#),
+                &mut output,
+            )
+            .unwrap();
+        assert_eq!(session.phase, Some(TimerPhase::AdditionalPomodoro));
+        assert_eq!(session.status, TimerStatus::Running);
+        assert_eq!(session.completed_pomodoros, 1);
+
+        session.complete_phase(&mut output).unwrap();
+        session
+            .handle_line(&command_line(r#"{"type":"startBreak"}"#), &mut output)
+            .unwrap();
+        assert_eq!(session.phase, Some(TimerPhase::ShortBreak));
+        assert_eq!(session.status, TimerStatus::Running);
+        assert_eq!(session.completed_pomodoros, 1);
+    }
+
+    #[test]
+    fn repeated_additional_rounds_without_a_question_start_automatically() {
+        let mut options = PomodoroOptions::default();
+        options.ask_before_break = false;
+        let (mut session, _) = test_session(options);
+        session.completed_pomodoros = 1;
+        session.phase = Some(TimerPhase::AdditionalPomodoro);
+        session.complete_phase(&mut Vec::new()).unwrap();
+        assert_eq!(session.phase, Some(TimerPhase::AdditionalPomodoro));
+        assert_eq!(session.status, TimerStatus::Running);
+        assert_eq!(session.completed_pomodoros, 1);
+    }
+
+    #[test]
+    fn skipping_an_additional_round_starts_the_break_even_when_auto_start_is_off() {
+        let mut options = PomodoroOptions::default();
+        options.auto_start_break = false;
+        let (mut session, _) = test_session(options);
+        session.completed_pomodoros = 1;
+        session
+            .start_phase(TimerPhase::AdditionalPomodoro, &mut Vec::new())
+            .unwrap();
+        session
+            .handle_line(&command_line(r#"{"type":"nextPhase"}"#), &mut Vec::new())
+            .unwrap();
+        assert_eq!(session.phase, Some(TimerPhase::ShortBreak));
+        assert_eq!(session.status, TimerStatus::Running);
+    }
+
+    #[test]
+    fn zero_length_due_break_bypasses_the_repeat_loop() {
+        let mut options = PomodoroOptions::default();
+        options.duration_short_break = 0;
+        let (mut session, _) = test_session(options);
+        session.phase = Some(TimerPhase::Pomodoro);
+        session.complete_phase(&mut Vec::new()).unwrap();
+        assert_eq!(session.phase, Some(TimerPhase::Pomodoro));
+        assert_eq!(session.completed_pomodoros, 1);
+    }
+
+    #[test]
     fn completing_break_can_wait_for_next_pomodoro() {
         let mut options = PomodoroOptions::default();
         options.auto_start_pomodoro = false;
@@ -371,6 +563,32 @@ mod tests {
         assert_eq!(session.status, TimerStatus::Waiting);
         assert_eq!(session.pending_start, Some(TimerPhase::Pomodoro));
         assert_eq!(session.phase, Some(TimerPhase::Pomodoro));
+    }
+
+    #[test]
+    fn waiting_for_pomodoro_repeats_reminders_until_started() {
+        REMINDERS.store(0, Ordering::Relaxed);
+        let mut options = PomodoroOptions::default();
+        options.auto_start_pomodoro = false;
+        options.interval_reminder_after_break = 1;
+        let (mut session, _) = test_session(options);
+        session.end_event_runner = count_reminder;
+        session.phase = Some(TimerPhase::ShortBreak);
+        session.complete_phase(&mut Vec::new()).unwrap();
+        REMINDERS.store(0, Ordering::Relaxed);
+
+        session.reminder_started = Some(Instant::now() - Duration::from_secs(61));
+        session.trigger_reminder_if_due();
+        assert_eq!(REMINDERS.load(Ordering::Relaxed), 1);
+        session.trigger_reminder_if_due();
+        assert_eq!(REMINDERS.load(Ordering::Relaxed), 1);
+
+        session
+            .handle_line(&command_line(r#"{"type":"start"}"#), &mut Vec::new())
+            .unwrap();
+        session.reminder_started = Some(Instant::now() - Duration::from_secs(61));
+        session.trigger_reminder_if_due();
+        assert_eq!(REMINDERS.load(Ordering::Relaxed), 1);
     }
 
     #[test]
@@ -393,7 +611,6 @@ mod tests {
         );
 
         let mut options = PomodoroOptions::default();
-        options.interval_long_break = -1;
         options.duration_short_break = 5;
         let (session, _) = test_session(options);
         assert_eq!(session.next_break_phase(), Some(TimerPhase::ShortBreak));
@@ -676,6 +893,7 @@ fn run_session(
         } else if session.has_new_elapsed_second() {
             session.emit_state(writer)?;
         }
+        session.trigger_reminder_if_due();
     }
     Ok(())
 }
@@ -718,6 +936,7 @@ struct Session {
     pending_start: Option<TimerPhase>,
     completed_pomodoros: u32,
     last_reported_elapsed: u64,
+    reminder_started: Option<Instant>,
     end_event_runner: fn(&EndEvent),
 }
 
@@ -733,6 +952,7 @@ impl Session {
             pending_start: None,
             completed_pomodoros: 0,
             last_reported_elapsed: 0,
+            reminder_started: None,
             end_event_runner: start_end_event,
         }
     }
@@ -793,6 +1013,67 @@ impl Session {
                 }
                 self.emit_state(writer)?;
             }
+            Command::NextPhase => {
+                if !matches!(self.status, TimerStatus::Running | TimerStatus::Paused) {
+                    return self.send_error(writer, "No active timer to advance".to_string());
+                }
+                self.advance_phase(writer)?;
+            }
+            Command::ContinueAdditional => {
+                if self.status != TimerStatus::AwaitingBreakDecision {
+                    return self.send_error(writer, "No break decision is pending".to_string());
+                }
+                if self.options.additional_duration > 0 && self.options.repeat_additional_pomodoro {
+                    self.start_phase(TimerPhase::AdditionalPomodoro, writer)?;
+                } else {
+                    self.after_additional_phase(writer)?;
+                }
+            }
+            Command::StartBreak => {
+                if self.status != TimerStatus::AwaitingBreakDecision {
+                    return self.send_error(writer, "No break decision is pending".to_string());
+                }
+                self.start_due_break(writer)?;
+            }
+            Command::UpdateSettings { settings } => {
+                if settings.duration_pomodoro < 1
+                    || settings.additional_duration < 0
+                    || settings.duration_short_break < 0
+                    || settings.duration_long_break < 0
+                    || settings.interval_long_break < 0
+                {
+                    return self.send_error(writer, "Timer settings are out of range".to_string());
+                }
+                self.options.duration_pomodoro = settings.duration_pomodoro;
+                self.options.additional_duration = settings.additional_duration;
+                self.options.repeat_additional_pomodoro = settings.repeat_additional_pomodoro;
+                self.options.ask_before_break = settings.ask_before_break;
+                self.options.duration_short_break = settings.duration_short_break;
+                self.options.duration_long_break = settings.duration_long_break;
+                self.options.interval_long_break = settings.interval_long_break;
+                self.options.auto_start_break = settings.auto_start_break;
+                self.options.auto_start_pomodoro = settings.auto_start_pomodoro;
+                // The bridge saves all options before sending this command.
+                // Refresh actions and reminders without restarting the service.
+                if let Ok(saved) = read_options_from_json_silent(None) {
+                    self.options.end_event_pomodoro = saved.end_event_pomodoro;
+                    self.options.end_event_additional_pomodoro =
+                        saved.end_event_additional_pomodoro;
+                    self.options.interval_reminder_after_break =
+                        saved.interval_reminder_after_break;
+                    self.options.event_reminder_after_break = saved.event_reminder_after_break;
+                }
+                if self.status == TimerStatus::Waiting && self.phase == Some(TimerPhase::Pomodoro) {
+                    self.reminder_started = Some(Instant::now());
+                }
+
+                if self.status == TimerStatus::Waiting {
+                    if let Some(phase) = self.phase {
+                        self.duration = self.phase_duration(phase);
+                        self.emit_state(writer)?;
+                    }
+                }
+            }
             Command::Cancel => {
                 self.timer.take();
                 self.status = TimerStatus::Idle;
@@ -801,6 +1082,7 @@ impl Session {
                 self.pending_start = None;
                 self.completed_pomodoros = 0;
                 self.last_reported_elapsed = 0;
+                self.reminder_started = None;
                 self.emit_state(writer)?;
             }
             Command::Quit => {
@@ -830,6 +1112,7 @@ impl Session {
         self.status = TimerStatus::Running;
         self.pending_start = None;
         self.last_reported_elapsed = 0;
+        self.reminder_started = None;
         self.emit_state(writer)
     }
 
@@ -840,6 +1123,7 @@ impl Session {
         self.status = TimerStatus::Waiting;
         self.pending_start = Some(phase);
         self.last_reported_elapsed = 0;
+        self.reminder_started = (phase == TimerPhase::Pomodoro).then(Instant::now);
         send_event(
             writer,
             Event::AwaitingStart {
@@ -857,6 +1141,23 @@ impl Session {
                 .as_ref()
                 .map(|timer| timer.get_elapsed_time() >= self.duration)
                 .unwrap_or(false)
+    }
+
+    fn trigger_reminder_if_due(&mut self) {
+        if self.status != TimerStatus::Waiting
+            || self.phase != Some(TimerPhase::Pomodoro)
+            || self.options.auto_start_pomodoro
+            || self.options.interval_reminder_after_break <= 0
+        {
+            return;
+        }
+        let interval = Duration::from_secs(self.options.interval_reminder_after_break as u64 * 60);
+        if let Some(started) = self.reminder_started {
+            if started.elapsed() >= interval {
+                (self.end_event_runner)(&self.options.event_reminder_after_break);
+                self.reminder_started = Some(Instant::now());
+            }
+        }
     }
 
     fn has_new_elapsed_second(&mut self) -> bool {
@@ -897,6 +1198,14 @@ impl Session {
     }
 
     fn complete_phase(&mut self, writer: &mut impl Write) -> io::Result<()> {
+        self.finish_phase(writer, true)
+    }
+
+    fn advance_phase(&mut self, writer: &mut impl Write) -> io::Result<()> {
+        self.finish_phase(writer, false)
+    }
+
+    fn finish_phase(&mut self, writer: &mut impl Write, run_end_event: bool) -> io::Result<()> {
         let Some(phase) = self.phase.take() else {
             return Ok(());
         };
@@ -914,19 +1223,41 @@ impl Session {
 
         match phase {
             TimerPhase::Pomodoro => {
-                (self.end_event_runner)(&self.options.end_event_pomodoro);
-                if self.options.additional_duration > 0 {
+                if run_end_event {
+                    (self.end_event_runner)(&self.options.end_event_pomodoro);
+                }
+                if self.options.repeat_additional_pomodoro && self.next_break_phase().is_none() {
+                    self.after_break(writer)
+                } else if self.options.additional_duration > 0 {
                     self.start_phase(TimerPhase::AdditionalPomodoro, writer)
                 } else {
                     self.after_additional_phase(writer)
                 }
             }
             TimerPhase::AdditionalPomodoro => {
-                (self.end_event_runner)(&self.options.end_event_additional_pomodoro);
-                self.after_additional_phase(writer)
+                if run_end_event {
+                    (self.end_event_runner)(&self.options.end_event_additional_pomodoro);
+                }
+                if run_end_event
+                    && self.options.repeat_additional_pomodoro
+                    && self.options.additional_duration > 0
+                    && self.next_break_phase().is_some()
+                {
+                    if self.options.ask_before_break {
+                        self.await_break_decision(writer)
+                    } else {
+                        self.start_phase(TimerPhase::AdditionalPomodoro, writer)
+                    }
+                } else if !run_end_event {
+                    self.start_due_break(writer)
+                } else {
+                    self.after_additional_phase(writer)
+                }
             }
             TimerPhase::ShortBreak | TimerPhase::LongBreak => {
-                (self.end_event_runner)(&self.options.end_event_pomodoro);
+                if run_end_event {
+                    (self.end_event_runner)(&self.options.end_event_pomodoro);
+                }
                 self.after_break(writer)
             }
         }
@@ -940,6 +1271,23 @@ impl Session {
             } else {
                 self.wait_for_start(phase, writer)
             }
+        } else {
+            self.after_break(writer)
+        }
+    }
+
+    fn await_break_decision(&mut self, writer: &mut impl Write) -> io::Result<()> {
+        self.phase = Some(TimerPhase::AdditionalPomodoro);
+        self.status = TimerStatus::AwaitingBreakDecision;
+        self.timer = None;
+        self.duration = self.phase_duration(TimerPhase::AdditionalPomodoro);
+        self.last_reported_elapsed = 0;
+        self.emit_state(writer)
+    }
+
+    fn start_due_break(&mut self, writer: &mut impl Write) -> io::Result<()> {
+        if let Some(phase) = self.next_break_phase() {
+            self.start_phase(phase, writer)
         } else {
             self.after_break(writer)
         }
