@@ -64,6 +64,7 @@ fn run_pomodoro(options: &PomodoroOptions, receiver: &std::sync::mpsc::Receiver<
             execute_timer(duration, receiver, end_event);
 
             let mut requested_break = false;
+            let mut decision_open = false;
             if options.additional_duration != 0
                 && !(options.repeat_additional_pomodoro && pomo_info.break_duration.is_zero())
             {
@@ -71,9 +72,28 @@ fn run_pomodoro(options: &PomodoroOptions, receiver: &std::sync::mpsc::Receiver<
                     let print_message =
                         generate_print_message_before_additional_break(&pomo_info, &options);
                     println!("{}", print_message);
-                    let completed = time_with_progress_bar(additional_duration, receiver, || {
-                        start_end_event(&options.end_event_additional_pomodoro)
-                    });
+                    let completed = time_with_progress_bar(
+                        additional_duration,
+                        receiver,
+                        || start_end_event(&options.end_event_additional_pomodoro),
+                        Some(&mut decision_open),
+                    );
+                    if decision_open {
+                        while let Ok(input) = receiver.try_recv() {
+                            match input.as_str() {
+                                "2" | "q" | "Q" => {
+                                    requested_break = true;
+                                    break;
+                                }
+                                "1" => decision_open = false,
+                                "ctrl+c" => std::process::exit(0),
+                                _ => {}
+                            }
+                        }
+                    }
+                    if requested_break {
+                        break;
+                    }
                     if !completed {
                         requested_break = true;
                         break;
@@ -82,10 +102,10 @@ fn run_pomodoro(options: &PomodoroOptions, receiver: &std::sync::mpsc::Receiver<
                         break;
                     }
                     if options.ask_before_break {
-                        requested_break = ask_for_break(receiver, options.additional_duration);
-                        if requested_break {
-                            break;
+                        if !decision_open {
+                            print_break_question();
                         }
+                        decision_open = true;
                     }
                 }
             }
@@ -122,26 +142,10 @@ fn run_pomodoro(options: &PomodoroOptions, receiver: &std::sync::mpsc::Receiver<
     }
 }
 
-fn ask_for_break(receiver: &std::sync::mpsc::Receiver<String>, minutes: i32) -> bool {
-    loop {
-        focus_terminal_window();
-        println!("A short break can help you return with a clearer head. Ready to take one?");
-        println!("1. Keep working ({minutes} min)  2. Take a break (Q)");
-        loop {
-            match receiver.recv_timeout(Duration::from_secs(1)) {
-                Ok(input) => match input.as_str() {
-                    "1" => return false,
-                    "2" | "q" | "Q" => return true,
-                    "ctrl+c" => std::process::exit(0),
-                    _ => break,
-                },
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => focus_terminal_window(),
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    panic!("Failed to receive input.")
-                }
-            }
-        }
-    }
+fn print_break_question() {
+    focus_terminal_window();
+    println!("A short break can help you return with a clearer head. Ready to take one?");
+    println!("1. Keep working  2. Take a break (Q)");
 }
 
 #[cfg(all(windows, not(test)))]
@@ -226,7 +230,7 @@ fn execute_timer<F: Fn()>(
     receiver: &std::sync::mpsc::Receiver<String>,
     end_event: F,
 ) {
-    time_with_progress_bar(duration, &receiver, end_event);
+    time_with_progress_bar(duration, &receiver, end_event, None);
     println!("Times up!");
 }
 
@@ -244,6 +248,7 @@ fn time_with_progress_bar<F: Fn()>(
     duration: Duration,
     receiver: &std::sync::mpsc::Receiver<String>,
     end_event: F,
+    mut decision_open: Option<&mut bool>,
 ) -> bool {
     let timer = Timer::new(duration);
     let mut bar = ProgressBar::new(duration.as_secs());
@@ -256,7 +261,8 @@ fn time_with_progress_bar<F: Fn()>(
     println!("Press 'p' to pause, 'q' to quit current timer and 's' to skip 1 minute.");
     let mut control_flow;
     while timer.get_elapsed_time() < duration {
-        (bar, control_flow) = handle_user_input(receiver, &timer, bar);
+        (bar, control_flow) =
+            handle_user_input(receiver, &timer, bar, decision_open.as_deref_mut());
         if control_flow == ControlFlow::Break(()) {
             return false;
         }
@@ -290,9 +296,16 @@ fn handle_user_input(
     receiver: &std::sync::mpsc::Receiver<String>,
     timer: &Timer,
     mut bar: ProgressBar,
+    decision_open: Option<&mut bool>,
 ) -> (ProgressBar, ControlFlow<()>) {
     if let Ok(input) = receiver.try_recv() {
-        if input == "p" {
+        if input == "1" && decision_open.as_ref().is_some_and(|open| **open) {
+            *decision_open.unwrap() = false;
+            println!("Keeping the current Additional Pomodoro running.");
+        } else if input == "2" && decision_open.as_ref().is_some_and(|open| **open) {
+            println!("Starting the due break.");
+            return (bar, ControlFlow::Break(()));
+        } else if input == "p" {
             timer.pause();
             println!("Timer paused.");
             println!("Press 'r' to resume, 'q' to quit current timer.");
@@ -320,6 +333,9 @@ fn handle_user_input(
             std::process::exit(0);
         } else {
             debug!("Invalid input: {}", input);
+            if decision_open.as_ref().is_some_and(|open| **open) {
+                print_break_question();
+            }
         }
         log::debug!("Elapsed time: {:?}", timer.get_elapsed_time());
     }
@@ -329,7 +345,7 @@ fn handle_user_input(
 #[cfg(test)]
 mod tests {
     use super::{
-        ask_for_break, ask_for_new_pomodoro, execute_timer, handle_user_input, run_pomodoro,
+        ask_for_new_pomodoro, execute_timer, handle_user_input, run_pomodoro,
         time_with_progress_bar,
     };
     use crate::pomodoro_options::PomodoroOptions;
@@ -370,30 +386,30 @@ mod tests {
 
         let (sender, receiver) = mpsc::channel();
         sender.send("p".to_string()).unwrap();
-        let (_, flow) = handle_user_input(&receiver, &timer, ProgressBar::new(600));
+        let (_, flow) = handle_user_input(&receiver, &timer, ProgressBar::new(600), None);
         assert_eq!(flow, ControlFlow::Continue(()));
         assert!(timer.is_paused());
 
         let (sender, receiver) = mpsc::channel();
         sender.send("r".to_string()).unwrap();
-        let (_, flow) = handle_user_input(&receiver, &timer, ProgressBar::new(600));
+        let (_, flow) = handle_user_input(&receiver, &timer, ProgressBar::new(600), None);
         assert_eq!(flow, ControlFlow::Continue(()));
         assert!(!timer.is_paused());
 
         let (sender, receiver) = mpsc::channel();
         sender.send("s".to_string()).unwrap();
-        let (_, flow) = handle_user_input(&receiver, &timer, ProgressBar::new(600));
+        let (_, flow) = handle_user_input(&receiver, &timer, ProgressBar::new(600), None);
         assert_eq!(flow, ControlFlow::Continue(()));
         assert_eq!(timer.get_elapsed_time(), Duration::from_secs(60));
 
         let (sender, receiver) = mpsc::channel();
         sender.send("unknown".to_string()).unwrap();
-        let (_, flow) = handle_user_input(&receiver, &timer, ProgressBar::new(600));
+        let (_, flow) = handle_user_input(&receiver, &timer, ProgressBar::new(600), None);
         assert_eq!(flow, ControlFlow::Continue(()));
 
         let (sender, receiver) = mpsc::channel();
         sender.send("q".to_string()).unwrap();
-        let (_, flow) = handle_user_input(&receiver, &timer, ProgressBar::new(600));
+        let (_, flow) = handle_user_input(&receiver, &timer, ProgressBar::new(600), None);
         assert_eq!(flow, ControlFlow::Break(()));
     }
 
@@ -416,9 +432,14 @@ mod tests {
         sender.send("q".to_string()).unwrap();
         let called = AtomicBool::new(false);
 
-        time_with_progress_bar(Duration::from_secs(600), &receiver, || {
-            called.store(true, Ordering::Relaxed);
-        });
+        time_with_progress_bar(
+            Duration::from_secs(600),
+            &receiver,
+            || {
+                called.store(true, Ordering::Relaxed);
+            },
+            None,
+        );
 
         assert!(!called.load(Ordering::Relaxed));
     }
@@ -429,9 +450,14 @@ mod tests {
         sender.send("s".to_string()).unwrap();
         let called = AtomicBool::new(false);
 
-        time_with_progress_bar(Duration::from_secs(60), &receiver, || {
-            called.store(true, Ordering::Relaxed);
-        });
+        time_with_progress_bar(
+            Duration::from_secs(60),
+            &receiver,
+            || {
+                called.store(true, Ordering::Relaxed);
+            },
+            None,
+        );
 
         assert!(called.load(Ordering::Relaxed));
     }
@@ -469,14 +495,30 @@ mod tests {
     }
 
     #[test]
-    fn break_question_accepts_one_to_continue_and_two_or_q_to_rest() {
+    fn break_question_accepts_one_to_continue_and_two_to_rest() {
         let (sender, receiver) = mpsc::channel();
         sender.send("x".to_string()).unwrap();
         sender.send("1".to_string()).unwrap();
         sender.send("2".to_string()).unwrap();
-        sender.send("q".to_string()).unwrap();
-        assert!(!ask_for_break(&receiver, 5));
-        assert!(ask_for_break(&receiver, 5));
-        assert!(ask_for_break(&receiver, 5));
+        let timer = Timer::new(Duration::from_secs(600));
+        let mut decision_open = true;
+        for _ in 0..2 {
+            let (_, flow) = handle_user_input(
+                &receiver,
+                &timer,
+                ProgressBar::new(600),
+                Some(&mut decision_open),
+            );
+            assert_eq!(flow, ControlFlow::Continue(()));
+        }
+        assert!(!decision_open);
+        decision_open = true;
+        let (_, flow) = handle_user_input(
+            &receiver,
+            &timer,
+            ProgressBar::new(600),
+            Some(&mut decision_open),
+        );
+        assert_eq!(flow, ControlFlow::Break(()));
     }
 }
