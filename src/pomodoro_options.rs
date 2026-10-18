@@ -57,6 +57,14 @@ pub(crate) struct TimerSettings {
     pub interval_long_break: i32,
     pub auto_start_break: bool,
     pub auto_start_pomodoro: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_event_pomodoro: Option<EndEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_event_additional_pomodoro: Option<EndEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interval_reminder_after_break: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_reminder_after_break: Option<EndEvent>,
 }
 
 pub(crate) fn enabled_by_default() -> bool {
@@ -75,6 +83,10 @@ impl From<&PomodoroOptions> for TimerSettings {
             interval_long_break: options.interval_long_break,
             auto_start_break: options.auto_start_break,
             auto_start_pomodoro: options.auto_start_pomodoro,
+            end_event_pomodoro: Some(options.end_event_pomodoro.clone()),
+            end_event_additional_pomodoro: Some(options.end_event_additional_pomodoro.clone()),
+            interval_reminder_after_break: Some(options.interval_reminder_after_break),
+            event_reminder_after_break: Some(options.event_reminder_after_break.clone()),
         }
     }
 }
@@ -90,6 +102,18 @@ impl TimerSettings {
         options.interval_long_break = self.interval_long_break;
         options.auto_start_break = self.auto_start_break;
         options.auto_start_pomodoro = self.auto_start_pomodoro;
+        if let Some(event) = self.end_event_pomodoro {
+            options.end_event_pomodoro = event;
+        }
+        if let Some(event) = self.end_event_additional_pomodoro {
+            options.end_event_additional_pomodoro = event;
+        }
+        if let Some(interval) = self.interval_reminder_after_break {
+            options.interval_reminder_after_break = interval;
+        }
+        if let Some(event) = self.event_reminder_after_break {
+            options.event_reminder_after_break = event;
+        }
     }
 }
 
@@ -172,6 +196,11 @@ impl PomodoroOptions {
                 return Err(VerificationError::InvalidSoundFile);
             }
         }
+        if let EndEvent::Sound { filepath_sound } = &self.event_reminder_after_break {
+            if !filepath_sound.is_file() && !filepath_sound.as_os_str().is_empty() {
+                return Err(VerificationError::InvalidSoundFile);
+            }
+        }
 
         Ok(())
     }
@@ -207,17 +236,21 @@ pub(crate) fn read_timer_settings_json() -> Result<String> {
 }
 
 fn read_timer_settings_json_from_path(filepath_json: Option<PathBuf>) -> Result<String> {
-    let options = match read_options_from_json_silent(filepath_json) {
-        Ok(options) => options,
-        Err(error)
-            if matches!(
-                error.downcast_ref::<PomodoroOptionsError>(),
-                Some(PomodoroOptionsError::OptionFileNotFound(_))
-            ) =>
-        {
-            PomodoroOptions::default()
+    let file_path = match filepath_json {
+        Some(path) => path,
+        None => get_filepath_options_next_to_executable()?,
+    };
+    let options = if file_path.is_file() {
+        let contents = std::fs::read_to_string(&file_path)
+            .with_context(|| format!("Failed to read file: {:?}", file_path))?;
+        let options: PomodoroOptions = serde_json::from_str(&contents)
+            .with_context(|| format!("Failed to parse JSON file: {:?}", file_path))?;
+        match options.verify() {
+            Ok(()) | Err(VerificationError::InvalidSoundFile) => options,
+            Err(error) => return Err(error.into()),
         }
-        Err(error) => return Err(error),
+    } else {
+        PomodoroOptions::default()
     };
     serde_json::to_string(&TimerSettings::from(&options))
         .context("Failed to serialize timer settings")
@@ -285,6 +318,9 @@ fn read_options_from_json_inner(
                 *filepath_sound = PathBuf::new();
             }
             if let EndEvent::Sound { filepath_sound } = &mut data.end_event_additional_pomodoro {
+                *filepath_sound = PathBuf::new();
+            }
+            if let EndEvent::Sound { filepath_sound } = &mut data.event_reminder_after_break {
                 *filepath_sound = PathBuf::new();
             }
         }
@@ -579,6 +615,54 @@ mod additional_tests {
         assert_eq!(persisted.get("themeMode"), None);
         assert_eq!(timer_settings["durationPomodoro"], 30);
         assert_eq!(timer_settings["autoStartBreak"], false);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn timer_settings_api_round_trips_actions_and_reminders_in_one_write() {
+        let path = temporary_file("json");
+        let settings = serde_json::json!({
+            "durationPomodoro": 30,
+            "additionalDuration": 5,
+            "durationShortBreak": 4,
+            "durationLongBreak": 12,
+            "intervalLongBreak": 3,
+            "autoStartBreak": false,
+            "autoStartPomodoro": false,
+            "endEventPomodoro": "lockScreen",
+            "endEventAdditionalPomodoro": {"sound": {"filepathSound": ""}},
+            "intervalReminderAfterBreak": 8,
+            "eventReminderAfterBreak": "lockScreen"
+        });
+        save_timer_settings_json_to_path(&settings.to_string(), Some(path.clone())).unwrap();
+        let loaded: serde_json::Value =
+            serde_json::from_str(&read_timer_settings_json_from_path(Some(path.clone())).unwrap())
+                .unwrap();
+        assert_eq!(loaded["endEventPomodoro"], "lockScreen");
+        assert_eq!(
+            loaded["endEventAdditionalPomodoro"]["sound"]["filepathSound"],
+            ""
+        );
+        assert_eq!(loaded["intervalReminderAfterBreak"], 8);
+        assert_eq!(loaded["eventReminderAfterBreak"], "lockScreen");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn timer_settings_read_preserves_an_unavailable_sound_path() {
+        let path = temporary_file("json");
+        let mut options = PomodoroOptions::default();
+        options.end_event_pomodoro = EndEvent::Sound {
+            filepath_sound: PathBuf::from("missing-sound.wav"),
+        };
+        std::fs::write(&path, serde_json::to_vec(&options).unwrap()).unwrap();
+        let loaded: serde_json::Value =
+            serde_json::from_str(&read_timer_settings_json_from_path(Some(path.clone())).unwrap())
+                .unwrap();
+        assert_eq!(
+            loaded["endEventPomodoro"]["sound"]["filepathSound"],
+            "missing-sound.wav"
+        );
         std::fs::remove_file(path).unwrap();
     }
 

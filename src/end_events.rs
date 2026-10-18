@@ -36,7 +36,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Represents different types of end events that can occur after a Pomodoro session.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub(crate) enum EndEvent {
     /// Play a sound specified by the file path.

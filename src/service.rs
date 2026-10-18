@@ -71,6 +71,7 @@ pub(crate) enum Event {
     State {
         status: TimerStatus,
         phase: Option<TimerPhase>,
+        next_step: NextStep,
         elapsed_seconds: u64,
         duration_seconds: u64,
         completed_pomodoros: u32,
@@ -108,10 +109,20 @@ pub(crate) enum TimerPhase {
     LongBreak,
 }
 
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum NextStep {
+    Pomodoro,
+    AdditionalPomodoro,
+    ShortBreak,
+    LongBreak,
+    BreakDecision,
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        run_session, Command, Event, Request, Response, Session, TimerPhase, TimerStatus,
+        run_session, Command, Event, NextStep, Request, Response, Session, TimerPhase, TimerStatus,
         PROTOCOL_VERSION,
     };
     use crate::end_events::EndEvent;
@@ -250,6 +261,7 @@ mod tests {
             event: Event::State {
                 status: TimerStatus::Running,
                 phase: Some(TimerPhase::Pomodoro),
+                next_step: NextStep::AdditionalPomodoro,
                 elapsed_seconds: 12,
                 duration_seconds: 1500,
                 completed_pomodoros: 0,
@@ -258,8 +270,29 @@ mod tests {
 
         assert_eq!(
             serde_json::to_string(&response).unwrap(),
-            r#"{"protocolVersion":1,"event":{"type":"state","status":"running","phase":"pomodoro","elapsedSeconds":12,"durationSeconds":1500,"completedPomodoros":0}}"#
+            r#"{"protocolVersion":1,"event":{"type":"state","status":"running","phase":"pomodoro","nextStep":"additionalPomodoro","elapsedSeconds":12,"durationSeconds":1500,"completedPomodoros":0}}"#
         );
+    }
+
+    #[test]
+    fn next_step_reflects_disabled_and_repeating_additional_pomodoros() {
+        let (_, receiver) = mpsc::channel();
+        let mut options = PomodoroOptions::default();
+        options.additional_duration = 0;
+        let mut session = Session::new(options, receiver);
+        session.phase = Some(TimerPhase::Pomodoro);
+        session.status = TimerStatus::Running;
+        assert_eq!(session.next_step(), NextStep::ShortBreak);
+
+        session.options.additional_duration = 5;
+        assert_eq!(session.next_step(), NextStep::AdditionalPomodoro);
+        session.phase = Some(TimerPhase::AdditionalPomodoro);
+        session.completed_pomodoros = 1;
+        assert_eq!(session.next_step(), NextStep::BreakDecision);
+        session.options.ask_before_break = false;
+        assert_eq!(session.next_step(), NextStep::AdditionalPomodoro);
+        session.options.repeat_additional_pomodoro = false;
+        assert_eq!(session.next_step(), NextStep::ShortBreak);
     }
 
     #[test]
@@ -1185,6 +1218,7 @@ impl Session {
             Event::State {
                 status: self.status,
                 phase: self.phase,
+                next_step: self.next_step(),
                 elapsed_seconds: self.elapsed_seconds(),
                 duration_seconds: self.duration.as_secs(),
                 completed_pomodoros: self.completed_pomodoros,
@@ -1302,13 +1336,47 @@ impl Session {
     }
 
     fn next_break_phase(&self) -> Option<TimerPhase> {
+        self.break_phase_after(self.completed_pomodoros)
+    }
+
+    fn next_step(&self) -> NextStep {
+        if self.status == TimerStatus::AwaitingBreakDecision {
+            return NextStep::BreakDecision;
+        }
+        let next_break = self.break_phase_after(
+            self.completed_pomodoros
+                .saturating_add(u32::from(self.phase == Some(TimerPhase::Pomodoro))),
+        );
+        match self.phase {
+            None | Some(TimerPhase::ShortBreak | TimerPhase::LongBreak) => NextStep::Pomodoro,
+            Some(TimerPhase::Pomodoro)
+                if self.options.additional_duration > 0
+                    && (!self.options.repeat_additional_pomodoro || next_break.is_some()) =>
+            {
+                NextStep::AdditionalPomodoro
+            }
+            Some(TimerPhase::AdditionalPomodoro)
+                if self.options.repeat_additional_pomodoro && next_break.is_some() =>
+            {
+                if self.options.ask_before_break {
+                    NextStep::BreakDecision
+                } else {
+                    NextStep::AdditionalPomodoro
+                }
+            }
+            _ => match next_break {
+                Some(TimerPhase::ShortBreak) => NextStep::ShortBreak,
+                Some(TimerPhase::LongBreak) => NextStep::LongBreak,
+                _ => NextStep::Pomodoro,
+            },
+        }
+    }
+
+    fn break_phase_after(&self, completed_pomodoros: u32) -> Option<TimerPhase> {
         if self.options.interval_long_break <= 0 {
             return (self.options.duration_short_break > 0).then_some(TimerPhase::ShortBreak);
         }
-        let counter = self
-            .completed_pomodoros
-            .saturating_sub(1)
-            .min(i32::MAX as u32) as i32;
+        let counter = completed_pomodoros.saturating_sub(1).min(i32::MAX as u32) as i32;
         let info = PomoInfo::from_options(&self.options, counter);
         if info.break_duration.is_zero() {
             None
